@@ -1,4 +1,4 @@
-.PHONY: dev test test-clean build db-up db-down
+.PHONY: dev test test-clean build db-up db-down lint
 
 dev:
 	./gradlew bootRun
@@ -17,3 +17,6 @@ db-up:
 
 db-down:
 	docker compose down -v
+
+lint:
+	./gradlew checkstyleMain checkstyleTest
