@@ -49,6 +49,7 @@ We use a `Makefile` to simplify development tasks:
 | `make build` | Compiles the production jar. |
 | `make db-up` | Starts the PostgreSQL database container. |
 | `make db-down` | Stops the database and clears the persistent volumes. |
+| `make lint` | Runs Checkstyle code quality/formatting checks. |
 
 ## System Design  
 Coming soon....
