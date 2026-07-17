@@ -1,4 +1,3 @@
-# Title Format
 <!-- {type}: {issue_number} - {short_description} -->
 <!-- e.g., feat: REL-1 - Added login screen -->
 
@@ -11,8 +10,8 @@ Plane: [REL-XXX](https://app.plane.so/veylor-hq/browse/REL-XXX)
 
 ## Platforms Affected
 <!-- Mark with ✓ or ✕ the affected platforms -->
-- Recipient Portal [ ]
-- Main Server [ ]
+- Recipient Portal ✕
+- Main Server ✕
 
 ## Screenshots / Output
 <!-- Add screenshots, logs, or command line outputs representing the desired effect. -->

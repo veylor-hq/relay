@@ -55,7 +55,7 @@ We use a `Makefile` to simplify development tasks:
 
 We provide pre-built client examples to demonstrate how to integrate your services with Veylor Relay:
 
-- **[FastAPI Demo App](file:///Users/ihorsavenko/IdeaProjects/rest_service/examples/fastapi_demo)**: A Python demonstration app showing how to authenticate administrative requests, load configurations, compute HMAC signatures, and dispatch bulk newsletters securely.
+- **[FastAPI Demo App](./examples/fastapi_demo)**: A Python demonstration app showing how to authenticate administrative requests, load configurations, compute HMAC signatures, and dispatch bulk newsletters securely.
 
 ## System Design  
 Coming soon....
