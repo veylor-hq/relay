@@ -5,7 +5,6 @@ public record ApiResponse<T>(
         String message,
         T data
 ) {
-    // Convenient static helper factory methods
     public static <T> ApiResponse<T> success(T data) {
         return new ApiResponse<>(true, "Operation successful", data);
     }
