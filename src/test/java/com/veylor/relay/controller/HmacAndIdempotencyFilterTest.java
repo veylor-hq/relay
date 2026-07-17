@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
@@ -137,14 +138,18 @@ class HmacAndIdempotencyFilterTest {
         UUID nonce = UUID.randomUUID();
         request.addHeader("X-RELAY-Nonce", nonce.toString());
 
+        Application app = Application.builder().id(UUID.randomUUID()).name("Test App").build();
+        request.setAttribute("authenticatedApplication", app);
+
         IdempotentRequest completedRequest = IdempotentRequest.builder()
+                .application(app)
                 .nonce(nonce)
                 .completed(true)
                 .statusCode(HttpServletResponse.SC_OK)
                 .responseBody("{\"status\":\"original response\"}")
                 .build();
 
-        when(idempotentRequestRepository.findById(nonce)).thenReturn(Optional.of(completedRequest));
+        when(idempotentRequestRepository.findByApplicationIdAndNonce(app.getId(), nonce)).thenReturn(Optional.of(completedRequest));
 
         MockHttpServletResponse response = new MockHttpServletResponse();
         FilterChain filterChain = mock(FilterChain.class);
@@ -164,7 +169,10 @@ class HmacAndIdempotencyFilterTest {
         UUID nonce = UUID.randomUUID();
         request.addHeader("X-RELAY-Nonce", nonce.toString());
 
-        when(idempotentRequestRepository.findById(nonce)).thenReturn(Optional.empty());
+        Application app = Application.builder().id(UUID.randomUUID()).name("Test App").build();
+        request.setAttribute("authenticatedApplication", app);
+
+        when(idempotentRequestRepository.findByApplicationIdAndNonce(app.getId(), nonce)).thenReturn(Optional.empty());
 
         MockHttpServletResponse response = new MockHttpServletResponse();
         FilterChain filterChain = mock(FilterChain.class);
@@ -173,45 +181,59 @@ class HmacAndIdempotencyFilterTest {
 
         // Should save a reservation record (completed=false) and continue to filter chain
         verify(idempotentRequestRepository, times(1)).saveAndFlush(argThat(req ->
-            req.getNonce().equals(nonce) && !req.getCompleted()
+            req.getNonce().equals(nonce) && req.getApplication().getId().equals(app.getId()) && !req.getCompleted()
         ));
         verify(filterChain, times(1)).doFilter(any(), any());
     }
 
     @Test
-    void testIdempotencyAllowsReservedButNotCompletedRequest() throws Exception {
-        // Finding #11: Reserved but not completed requests should be allowed to continue
+    void testIdempotencyRejectsIncompleteConcurrentRetries() throws Exception {
+        // Finding #11: Incomplete concurrent retries should be rejected with 409 Conflict
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/notifications/bulk");
         UUID nonce = UUID.randomUUID();
         request.addHeader("X-RELAY-Nonce", nonce.toString());
 
+        Application app = Application.builder().id(UUID.randomUUID()).name("Test App").build();
+        request.setAttribute("authenticatedApplication", app);
+
         IdempotentRequest reservedRequest = IdempotentRequest.builder()
+                .application(app)
                 .nonce(nonce)
                 .completed(false)
                 .build();
 
-        when(idempotentRequestRepository.findById(nonce)).thenReturn(Optional.of(reservedRequest));
+        when(idempotentRequestRepository.findByApplicationIdAndNonce(app.getId(), nonce)).thenReturn(Optional.of(reservedRequest));
 
         MockHttpServletResponse response = new MockHttpServletResponse();
         FilterChain filterChain = mock(FilterChain.class);
 
         idempotencyFilter.doFilter(request, response, filterChain);
 
-        // Should continue processing (not replay, not reserve again)
-        verify(idempotentRequestRepository, never()).saveAndFlush(any());
-        verify(filterChain, times(1)).doFilter(any(), any());
+        // Should return 409 Conflict without invoking the filter chain
+        assertEquals(HttpServletResponse.SC_CONFLICT, response.getStatus());
+        assertTrue(response.getContentAsString().contains("already in progress"));
+        verify(filterChain, never()).doFilter(any(), any());
     }
 
     @Test
     void testIdempotencyCompletionRecording() throws Exception {
-        // Finding #11: After successful downstream processing, mark as completed
-        // Note: The actual completion recording happens via markCompleted() method after filter chain
-        // This test verifies the filter captures the response for later completion
+        // Finding #11: After successful downstream processing, capture and mark as completed
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/notifications/bulk");
         UUID nonce = UUID.randomUUID();
         request.addHeader("X-RELAY-Nonce", nonce.toString());
 
-        when(idempotentRequestRepository.findById(nonce)).thenReturn(Optional.empty());
+        Application app = Application.builder().id(UUID.randomUUID()).name("Test App").build();
+        request.setAttribute("authenticatedApplication", app);
+
+        IdempotentRequest reservedRequest = IdempotentRequest.builder()
+                .application(app)
+                .nonce(nonce)
+                .completed(false)
+                .build();
+
+        when(idempotentRequestRepository.findByApplicationIdAndNonce(app.getId(), nonce))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(reservedRequest));
 
         MockHttpServletResponse response = new MockHttpServletResponse();
         FilterChain filterChain = mock(FilterChain.class);
@@ -226,9 +248,18 @@ class HmacAndIdempotencyFilterTest {
 
         idempotencyFilter.doFilter(request, response, filterChain);
 
-        // Filter should have wrapped the response to capture output
         verify(filterChain, times(1)).doFilter(any(), any());
-        verify(idempotentRequestRepository, times(1)).saveAndFlush(any(IdempotentRequest.class));
+
+        // Capture initial reservation and completion save
+        ArgumentCaptor<IdempotentRequest> reserveCaptor = ArgumentCaptor.forClass(IdempotentRequest.class);
+        verify(idempotentRequestRepository, times(1)).saveAndFlush(reserveCaptor.capture());
+        assertFalse(reserveCaptor.getValue().getCompleted());
+
+        ArgumentCaptor<IdempotentRequest> completedCaptor = ArgumentCaptor.forClass(IdempotentRequest.class);
+        verify(idempotentRequestRepository, times(1)).save(completedCaptor.capture());
+        assertTrue(completedCaptor.getValue().getCompleted());
+        assertEquals(HttpServletResponse.SC_OK, completedCaptor.getValue().getStatusCode());
+        assertEquals("{\"result\":\"success\"}", completedCaptor.getValue().getResponseBody());
     }
 
     @Test
@@ -238,14 +269,18 @@ class HmacAndIdempotencyFilterTest {
         UUID nonce = UUID.randomUUID();
         request.addHeader("X-RELAY-Nonce", nonce.toString());
 
+        Application app = Application.builder().id(UUID.randomUUID()).name("Test App").build();
+        request.setAttribute("authenticatedApplication", app);
+
         IdempotentRequest completedRequest = IdempotentRequest.builder()
+                .application(app)
                 .nonce(nonce)
                 .completed(true)
                 .statusCode(HttpServletResponse.SC_OK)
                 .responseBody(null)
                 .build();
 
-        when(idempotentRequestRepository.findById(nonce)).thenReturn(Optional.of(completedRequest));
+        when(idempotentRequestRepository.findByApplicationIdAndNonce(app.getId(), nonce)).thenReturn(Optional.of(completedRequest));
 
         MockHttpServletResponse response = new MockHttpServletResponse();
         FilterChain filterChain = mock(FilterChain.class);
@@ -286,23 +321,34 @@ class HmacAndIdempotencyFilterTest {
 
     @Test
     void testHmacFilterBlocksBeforeIdempotencyNoncePersistence() throws Exception {
-        // Finding #10: Unauthenticated requests should be blocked by HMAC before idempotency logic
-        // This test verifies HMAC filter runs first and blocks invalid auth before nonce is persisted
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/notifications/bulk");
+        // Production Order: HmacSecurityFilter runs first, then IdempotencyFilter
+        org.springframework.test.web.servlet.MockMvc mockMvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(new Object())
+                .addFilters(hmacSecurityFilter, idempotencyFilter)
+                .build();
+
         UUID nonce = UUID.randomUUID();
-        request.addHeader("X-RELAY-Nonce", nonce.toString());
-        // Missing HMAC headers (X-RELAY-API-Key and X-RELAY-Authorization)
 
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        FilterChain mockIdempotencyChain = mock(FilterChain.class);
+        // Send unauthenticated request (missing HMAC signatures)
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/notifications/bulk")
+                .header("X-RELAY-Nonce", nonce.toString()))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
 
-        // HMAC filter should reject before idempotency filter runs
-        hmacSecurityFilter.doFilter(request, response, mockIdempotencyChain);
-
-        assertEquals(HttpServletResponse.SC_UNAUTHORIZED, response.getStatus());
-        verify(mockIdempotencyChain, never()).doFilter(any(), any());
-        // Idempotency repository should never be called since HMAC blocked the request
-        verify(idempotentRequestRepository, never()).findById(any());
+        // Verify HMAC blocked the request so idempotency repository was never touched
+        verify(idempotentRequestRepository, never()).findByApplicationIdAndNonce(any(), any());
         verify(idempotentRequestRepository, never()).saveAndFlush(any());
+
+        // Verify reverse registration order breaks execution expectation (idempotency runs without authenticatedApplication)
+        org.springframework.test.web.servlet.MockMvc reverseMockMvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(new Object())
+                .addFilters(idempotencyFilter, hmacSecurityFilter)
+                .build();
+
+        reverseMockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/notifications/bulk")
+                .header("X-RELAY-Nonce", nonce.toString()))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
+
+        // In reverse order, idempotency bypassed it because application was null
+        verify(idempotentRequestRepository, never()).findByApplicationIdAndNonce(any(), any());
     }
 }

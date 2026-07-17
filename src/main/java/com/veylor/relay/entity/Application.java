@@ -21,7 +21,7 @@ public class Application {
     @Column(nullable = false)
     private String name;
 
-    @Column(name = "access_key_hash", nullable = false)
+    @Column(name = "access_key_hash", nullable = false, unique = true)
     private String accessKeyHash;
 
     @Column(name = "created_at", nullable = false, updatable = false)

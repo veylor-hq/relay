@@ -33,7 +33,8 @@ class NotificationServiceTest {
         mailSender = mock(JavaMailSender.class);
         recipientRepository = mock(RecipientRepository.class);
         notificationLogRepository = mock(NotificationLogRepository.class);
-        notificationService = new NotificationService(mailSender, recipientRepository, notificationLogRepository);
+        org.springframework.transaction.PlatformTransactionManager transactionManager = mock(org.springframework.transaction.PlatformTransactionManager.class);
+        notificationService = new NotificationService(mailSender, recipientRepository, notificationLogRepository, transactionManager);
     }
 
     @Test

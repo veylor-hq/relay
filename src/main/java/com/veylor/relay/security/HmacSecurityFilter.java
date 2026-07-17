@@ -55,7 +55,14 @@ public class HmacSecurityFilter extends OncePerRequestFilter {
 
         Application application = applicationOpt.get();
 
-        CachedBodyHttpServletRequest cachedRequest = new CachedBodyHttpServletRequest(request);
+        CachedBodyHttpServletRequest cachedRequest;
+        try {
+            cachedRequest = new CachedBodyHttpServletRequest(request);
+        } catch (CachedBodyHttpServletRequest.PayloadTooLargeException e) {
+            response.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+            response.getWriter().write("Payload Too Large: " + e.getMessage());
+            return;
+        }
         byte[] bodyBytes = cachedRequest.getCachedBody();
 
         // Build canonical request string: METHOD\nPATH\nNONCE\nBODY

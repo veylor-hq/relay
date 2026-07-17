@@ -20,6 +20,19 @@ public class IdempotencyResponseWrapper extends HttpServletResponseWrapper {
     }
 
     @Override
+    public void reset() {
+        super.reset();
+        this.capture.reset();
+        this.status = SC_OK;
+    }
+
+    @Override
+    public void resetBuffer() {
+        super.resetBuffer();
+        this.capture.reset();
+    }
+
+    @Override
     public void setStatus(int sc) {
         super.setStatus(sc);
         this.status = sc;

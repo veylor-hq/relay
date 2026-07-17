@@ -16,9 +16,12 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
@@ -34,6 +37,7 @@ public class NotificationService {
     private final JavaMailSender mailSender;
     private final RecipientRepository recipientRepository;
     private final NotificationLogRepository notificationLogRepository;
+    private final PlatformTransactionManager transactionManager;
 
     @Value("${spring.mail.from-address}")
     private String fromAddress;
@@ -43,9 +47,13 @@ public class NotificationService {
         log.info("Starting processing of bulk notification batch {} with {} items on thread {}",
                  batchId, items.size(), Thread.currentThread());
 
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+
         for (NotificationItem item : items) {
             try {
-                processSingleItemForBulk(item, application, batchId);
+                transactionTemplate.executeWithoutResult(status -> {
+                    processSingleItemForBulk(item, application, batchId);
+                });
             } catch (Exception e) {
                 log.error("Failed to send/log notification for recipientId {}: {}",
                          item.getRecipientId() != null ? item.getRecipientId() : "[email-based]", e.getMessage(), e);
@@ -67,8 +75,9 @@ public class NotificationService {
                 .level(item.getLevel())
                 .subject(hashString(item.getSubject()))
                 .content(hashString(item.getContent()))
+                .status("PENDING")
                 .build();
-        notificationLogRepository.save(logEntry);
+        NotificationLog saved = notificationLogRepository.save(logEntry);
 
         // Send email after transaction commits
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -77,13 +86,23 @@ public class NotificationService {
                 public void afterCommit() {
                     try {
                         sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
+                        updateLogStatus(saved.getId(), "SENT");
                     } catch (Exception e) {
                         log.error("Failed to send email for recipientId {}: {}", recipient.getId(), e.getMessage(), e);
+                        updateLogStatus(saved.getId(), "FAILED");
                     }
                 }
             });
         } else {
-            sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
+            try {
+                sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
+                saved.setStatus("SENT");
+                notificationLogRepository.save(saved);
+            } catch (Exception e) {
+                saved.setStatus("FAILED");
+                notificationLogRepository.save(saved);
+                throw e;
+            }
         }
     }
 
@@ -99,6 +118,7 @@ public class NotificationService {
                 .level(item.getLevel())
                 .subject(hashString(item.getSubject()))
                 .content(hashString(item.getContent()))
+                .status("PENDING")
                 .build();
 
         NotificationLog saved = notificationLogRepository.save(logEntry);
@@ -107,31 +127,54 @@ public class NotificationService {
         final String recipientEmail = recipient.getSanitizedEmail();
         final String subject = item.getSubject();
         final String content = item.getContent();
+        String outcomeStatus = "PENDING";
+
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
                     try {
                         sendEmail(recipientEmail, subject, content);
+                        updateLogStatus(saved.getId(), "SENT");
                     } catch (Exception e) {
                         log.error("Failed to send email for recipientId {}: {}", recipient.getId(), e.getMessage(), e);
+                        updateLogStatus(saved.getId(), "FAILED");
                     }
                 }
             });
         } else {
-            sendEmail(recipientEmail, subject, content);
+            try {
+                sendEmail(recipientEmail, subject, content);
+                saved.setStatus("SENT");
+                notificationLogRepository.save(saved);
+                outcomeStatus = "SENT";
+            } catch (Exception e) {
+                saved.setStatus("FAILED");
+                notificationLogRepository.save(saved);
+                throw e;
+            }
         }
 
-        return new NotificationResult(saved.getId(), recipientEmail);
+        return new NotificationResult(saved.getId(), recipientEmail, outcomeStatus);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void updateLogStatus(UUID logId, String status) {
+        notificationLogRepository.findById(logId).ifPresent(logEntry -> {
+            logEntry.setStatus(status);
+            notificationLogRepository.save(logEntry);
+        });
     }
 
     public static class NotificationResult {
         private final UUID logId;
         private final String resolvedEmail;
+        private final String status;
 
-        public NotificationResult(UUID logId, String resolvedEmail) {
+        public NotificationResult(UUID logId, String resolvedEmail, String status) {
             this.logId = logId;
             this.resolvedEmail = resolvedEmail;
+            this.status = status;
         }
 
         public UUID getLogId() {
@@ -140,6 +183,10 @@ public class NotificationService {
 
         public String getResolvedEmail() {
             return resolvedEmail;
+        }
+
+        public String getStatus() {
+            return status;
         }
     }
 
@@ -177,7 +224,9 @@ public class NotificationService {
             StringBuilder hexString = new StringBuilder();
             for (int i = 0; i < Math.min(8, hash.length); i++) {
                 String hex = Integer.toHexString(0xff & hash[i]);
-                if (hex.length() == 1) hexString.append('0');
+                if (hex.length() == 1) {
+                    hexString.append('0');
+                }
                 hexString.append(hex);
             }
             return hexString.toString();

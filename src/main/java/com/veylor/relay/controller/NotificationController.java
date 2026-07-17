@@ -57,10 +57,11 @@ public class NotificationController {
 
         NotificationService.NotificationResult result = notificationService.processSingleNotification(request, application);
 
+        String responseEmail = (request.getEmail() != null) ? result.getResolvedEmail() : null;
         SingleResponse response = SingleResponse.builder()
                 .logId(result.getLogId())
-                .status("SENT")
-                .recipientEmail(result.getResolvedEmail())
+                .status(result.getStatus())
+                .recipientEmail(responseEmail)
                 .build();
 
         return ResponseEntity.ok(response);

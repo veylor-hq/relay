@@ -1,5 +1,6 @@
 package com.veylor.relay.security;
 
+import com.veylor.relay.entity.Application;
 import com.veylor.relay.entity.IdempotentRequest;
 import com.veylor.relay.repository.IdempotentRequestRepository;
 import jakarta.servlet.FilterChain;
@@ -36,12 +37,14 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         }
 
         String nonceHeader = request.getHeader("X-RELAY-Nonce");
-        if (nonceHeader != null && !nonceHeader.trim().isEmpty()) {
+        Application application = (Application) request.getAttribute("authenticatedApplication");
+
+        if (nonceHeader != null && !nonceHeader.trim().isEmpty() && application != null) {
             try {
                 UUID nonce = UUID.fromString(nonceHeader.trim());
 
                 // Check if already completed
-                Optional<IdempotentRequest> existingOpt = idempotentRequestRepository.findById(nonce);
+                Optional<IdempotentRequest> existingOpt = idempotentRequestRepository.findByApplicationIdAndNonce(application.getId(), nonce);
                 if (existingOpt.isPresent()) {
                     IdempotentRequest existing = existingOpt.get();
                     if (existing.getCompleted()) {
@@ -55,10 +58,14 @@ public class IdempotencyFilter extends OncePerRequestFilter {
                         }
                         return;
                     }
-                    // Already reserved but not completed - allow processing to continue
+                    // Already reserved but not completed - reject as conflict
+                    response.setStatus(HttpServletResponse.SC_CONFLICT);
+                    response.getWriter().write("Request with this nonce is already in progress.");
+                    return;
                 } else {
                     // Reserve the nonce
                     IdempotentRequest record = IdempotentRequest.builder()
+                            .application(application)
                             .nonce(nonce)
                             .completed(false)
                             .build();
@@ -78,11 +85,11 @@ public class IdempotencyFilter extends OncePerRequestFilter {
 
                 // Mark as completed and store response
                 UUID nonce = UUID.fromString(nonceHeader.trim());
-                markCompleted(nonce, responseWrapper.getStatus(), responseWrapper.getCaptureAsString());
+                markCompleted(application.getId(), nonce, responseWrapper.getStatus(), responseWrapper.getCaptureAsString());
             } catch (Exception e) {
                 // Mark as completed with error status
                 UUID nonce = UUID.fromString(nonceHeader.trim());
-                markCompleted(nonce, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "{\"error\":\"Internal server error\"}");
+                markCompleted(application.getId(), nonce, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "{\"error\":\"Internal server error\"}");
                 throw e;
             }
         } else {
@@ -91,8 +98,8 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     }
 
     @Transactional
-    protected void markCompleted(UUID nonce, int statusCode, String responseBody) {
-        idempotentRequestRepository.findById(nonce).ifPresent(record -> {
+    protected void markCompleted(UUID applicationId, UUID nonce, int statusCode, String responseBody) {
+        idempotentRequestRepository.findByApplicationIdAndNonce(applicationId, nonce).ifPresent(record -> {
             record.setCompleted(true);
             record.setStatusCode(statusCode);
             record.setResponseBody(responseBody);

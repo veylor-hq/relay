@@ -6,7 +6,9 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "idempotent_requests")
+@Table(name = "idempotent_requests", uniqueConstraints = {
+    @UniqueConstraint(name = "uq_idempotency_app_nonce", columnNames = {"application_id", "nonce"})
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -15,7 +17,14 @@ import java.util.UUID;
 public class IdempotentRequest {
 
     @Id
-    @Column(nullable = false)
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "application_id", nullable = false)
+    private Application application;
+
+    @Column(name = "nonce", nullable = false)
     private UUID nonce;
 
     @Column(name = "processed_at", nullable = false, updatable = false)

@@ -41,6 +41,10 @@ public class NotificationLog {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
 
+    @Column(name = "status", nullable = false)
+    @Builder.Default
+    private String status = "PENDING";
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();

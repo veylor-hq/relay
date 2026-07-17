@@ -21,6 +21,12 @@ public class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
         this.cachedBody = readBounded(requestInputStream, MAX_BODY_SIZE);
     }
 
+    public static class PayloadTooLargeException extends IOException {
+        public PayloadTooLargeException(String message) {
+            super(message);
+        }
+    }
+
     private static byte[] readBounded(InputStream input, int maxSize) throws IOException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] temp = new byte[8192];
@@ -30,7 +36,7 @@ public class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
         while ((bytesRead = input.read(temp)) != -1) {
             totalRead += bytesRead;
             if (totalRead > maxSize) {
-                throw new IOException("Request body exceeds maximum size of " + maxSize + " bytes");
+                throw new PayloadTooLargeException("Request body exceeds maximum size of " + maxSize + " bytes");
             }
             buffer.write(temp, 0, bytesRead);
         }
