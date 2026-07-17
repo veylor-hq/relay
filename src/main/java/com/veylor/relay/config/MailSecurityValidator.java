@@ -10,16 +10,19 @@ public class MailSecurityValidator {
     @Value("${spring.mail.properties.mail.smtp.auth:false}")
     private boolean authEnabled;
 
+    @Value("${spring.mail.properties.mail.smtp.starttls.enable:false}")
+    private boolean starttlsEnabled;
+
     @Value("${spring.mail.properties.mail.smtp.starttls.required:false}")
     private boolean starttlsRequired;
 
     @PostConstruct
     public void validate() {
-        if (authEnabled && !starttlsRequired) {
+        if (authEnabled && (!starttlsEnabled || !starttlsRequired)) {
             throw new IllegalStateException(
-                    "Security validation failed: SMTP authentication is enabled but STARTTLS is not required. " +
-                    "To prevent credentials from being sent in plaintext if the mail server does not support TLS, " +
-                    "please set spring.mail.properties.mail.smtp.starttls.required=true in application.properties."
+                    "Security validation failed: SMTP authentication is enabled but STARTTLS is not enabled or not required. " +
+                    "To prevent credentials from being sent in plaintext, both spring.mail.properties.mail.smtp.starttls.enable " +
+                    "and spring.mail.properties.mail.smtp.starttls.required must be set to true in application.properties."
             );
         }
     }
