@@ -5,8 +5,8 @@ WORKDIR /app
 # Copy the built jar file
 COPY build/libs/*.jar app.jar
 
-# Copy the Sentry OpenTelemetry agent (if it exists)
-COPY sentry-opentelemetry-agent-8.49.0.jar sentry-agent.jar
+# Download the Sentry OpenTelemetry agent dynamically from Maven Central
+ADD https://repo1.maven.org/maven2/io/sentry/sentry-opentelemetry-agent/8.49.0/sentry-opentelemetry-agent-8.49.0.jar sentry-agent.jar
 
 # Expose the default Spring Boot port
 EXPOSE 8080
