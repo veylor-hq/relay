@@ -1,8 +1,8 @@
 # Veylor Relay
+Veylor Relay is a high-performance, multi-tenant notification routing proxy and PII isolation vault.
+It serves as the centralised, GDPR-compliant privacy boundary across the Veylor service ecosystem, including the core **eGarage GMS (Garage Management System)** and auxiliary billing, booking, and inventory systems.
 
-Veylor Relay is a high-performance, multi-tenant, and GDPR-compliant notification routing microservice built using **Spring Boot** and **Java**. 
-
-By decoupling Personally Identifiable Information (PII) from your primary user-facing systems and managing it entirely within Veylor Relay, you shrink the compliance and security surface area of your core applications.
+By decoupling Personally Identifiable Information (PII) from primary client-facing nodes and tokenizing recipient details into an identity-decoupled `recipient_id` (UUID), Veylor Relay reduces the security compliance surface area of the entire microservice infrastructure to zero at the perimeter.
 
 ## Key Features
 

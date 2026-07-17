@@ -10,7 +10,7 @@ public record ApiResponse<T>(
     }
 
     public static <T> ApiResponse<T> error(T data) {
-        return new ApiResponse<>(true, "Operation failed", data);
+        return new ApiResponse<>(false, "Operation failed", data);
     }
 
     public static ApiResponse<Void> successMessage(String message) {

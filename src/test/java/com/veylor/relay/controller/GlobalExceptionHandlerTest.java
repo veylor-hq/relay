@@ -20,7 +20,7 @@ class GlobalExceptionHandlerTest {
     static class DummyController {
         @GetMapping("/trigger-no-resource")
         public void triggerNoResource() throws NoResourceFoundException {
-            throw new NoResourceFoundException(HttpMethod.GET, "/some/static/file.js", "Resource not found");
+            throw new NoResourceFoundException(HttpMethod.GET, "Resource not found", "/some/static/file.js");
         }
 
         @GetMapping("/trigger-no-handler")
@@ -35,11 +35,23 @@ class GlobalExceptionHandlerTest {
             .build();
 
     @Test
+    void testDirectHandleNoResourceFound() {
+        NoResourceFoundException ex = new NoResourceFoundException(HttpMethod.GET, "Resource not found", "/some/static/file.js");
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+        var response = handler.handleNoResourceFound(ex);
+        org.junit.jupiter.api.Assertions.assertNotNull(response);
+        org.junit.jupiter.api.Assertions.assertEquals(org.springframework.http.HttpStatus.NOT_FOUND, response.getStatusCode());
+        org.junit.jupiter.api.Assertions.assertNotNull(response.getBody());
+        org.junit.jupiter.api.Assertions.assertEquals("Route not found /some/static/file.js", response.getBody().message());
+    }
+
+    @Test
     void testHandleNoResourceFound() throws Exception {
         mockMvc.perform(get("/trigger-no-resource"))
+                .andDo(org.springframework.test.web.servlet.result.MockMvcResultHandlers.print())
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.message").value("Route not found: /some/static/file.js"));
+                .andExpect(jsonPath("$.message").value("Route not found /some/static/file.js"));
     }
 
     @Test
@@ -47,6 +59,6 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/trigger-no-handler"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.message").value("Route not found: /api/v1/invalid"));
+                .andExpect(jsonPath("$.message").value("Route not found /api/v1/invalid"));
     }
 }
