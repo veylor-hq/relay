@@ -71,16 +71,20 @@ public class NotificationService {
         notificationLogRepository.save(logEntry);
 
         // Send email after transaction commits
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                try {
-                    sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
-                } catch (Exception e) {
-                    log.error("Failed to send email for recipientId {}: {}", recipient.getId(), e.getMessage(), e);
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
+                    } catch (Exception e) {
+                        log.error("Failed to send email for recipientId {}: {}", recipient.getId(), e.getMessage(), e);
+                    }
                 }
-            }
-        });
+            });
+        } else {
+            sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
+        }
     }
 
     @Transactional
@@ -103,16 +107,20 @@ public class NotificationService {
         final String recipientEmail = recipient.getSanitizedEmail();
         final String subject = item.getSubject();
         final String content = item.getContent();
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                try {
-                    sendEmail(recipientEmail, subject, content);
-                } catch (Exception e) {
-                    log.error("Failed to send email for recipientId {}: {}", recipient.getId(), e.getMessage(), e);
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        sendEmail(recipientEmail, subject, content);
+                    } catch (Exception e) {
+                        log.error("Failed to send email for recipientId {}: {}", recipient.getId(), e.getMessage(), e);
+                    }
                 }
-            }
-        });
+            });
+        } else {
+            sendEmail(recipientEmail, subject, content);
+        }
 
         return new NotificationResult(saved.getId(), recipientEmail);
     }

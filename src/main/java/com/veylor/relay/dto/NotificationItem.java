@@ -1,5 +1,6 @@
 package com.veylor.relay.dto;
 
+import com.veylor.relay.validation.ExactlyOneRecipientIdentifier;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.*;

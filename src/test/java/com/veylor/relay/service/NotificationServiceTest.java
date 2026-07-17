@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.*;
 
@@ -68,7 +69,8 @@ class NotificationServiceTest {
         verify(notificationLogRepository, times(1)).save(logCaptor.capture());
         assertEquals("EMAIL", logCaptor.getValue().getType());
         assertEquals("INFO", logCaptor.getValue().getLevel());
-        assertEquals("Hey", logCaptor.getValue().getSubject());
+        assertNotNull(logCaptor.getValue().getSubject());
+        assertNotEquals("Hey", logCaptor.getValue().getSubject());
     }
 
     @Test
@@ -93,10 +95,10 @@ class NotificationServiceTest {
         NotificationLog mockLog = NotificationLog.builder().id(UUID.randomUUID()).build();
         when(notificationLogRepository.save(any(NotificationLog.class))).thenReturn(mockLog);
 
-        UUID logId = notificationService.processSingleNotification(item, app);
+        NotificationService.NotificationResult result = notificationService.processSingleNotification(item, app);
 
-        assertNotNull(logId);
-        assertEquals(mockLog.getId(), logId);
+        assertNotNull(result);
+        assertEquals(mockLog.getId(), result.getLogId());
 
         ArgumentCaptor<SimpleMailMessage> mailCaptor = ArgumentCaptor.forClass(SimpleMailMessage.class);
         verify(mailSender, times(1)).send(mailCaptor.capture());

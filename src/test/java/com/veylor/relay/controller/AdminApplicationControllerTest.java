@@ -51,7 +51,7 @@ class AdminApplicationControllerTest {
         Application app = Application.builder().id(id).name("App").build();
         when(applicationRepository.findById(id)).thenReturn(Optional.of(app));
 
-        ResponseEntity<Application> response = controller.getApplication(id);
+        ResponseEntity<AdminApplicationController.ApplicationResponse> response = controller.getApplication(id);
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
         assertEquals("App", response.getBody().getName());
@@ -67,7 +67,7 @@ class AdminApplicationControllerTest {
         AdminApplicationController.UpdateApplicationRequest req = 
                 new AdminApplicationController.UpdateApplicationRequest("New App");
 
-        ResponseEntity<Application> response = controller.updateApplication(id, req);
+        ResponseEntity<AdminApplicationController.ApplicationResponse> response = controller.updateApplication(id, req);
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
         assertEquals("New App", response.getBody().getName());

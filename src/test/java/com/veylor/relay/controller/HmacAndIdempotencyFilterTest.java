@@ -218,7 +218,7 @@ class HmacAndIdempotencyFilterTest {
 
         // Simulate downstream writes a response
         doAnswer(invocation -> {
-            MockHttpServletResponse resp = (MockHttpServletResponse) invocation.getArgument(1);
+            jakarta.servlet.http.HttpServletResponse resp = (jakarta.servlet.http.HttpServletResponse) invocation.getArgument(1);
             resp.setStatus(HttpServletResponse.SC_OK);
             resp.getWriter().write("{\"result\":\"success\"}");
             return null;
