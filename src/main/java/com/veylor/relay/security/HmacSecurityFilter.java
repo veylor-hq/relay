@@ -60,7 +60,7 @@ public class HmacSecurityFilter extends OncePerRequestFilter {
             cachedRequest = new CachedBodyHttpServletRequest(request);
         } catch (CachedBodyHttpServletRequest.PayloadTooLargeException e) {
             response.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
-            response.getWriter().write("Payload Too Large: " + e.getMessage());
+            response.getWriter().write("Payload Too Large");
             return;
         }
         byte[] bodyBytes = cachedRequest.getCachedBody();
