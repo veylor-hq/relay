@@ -39,8 +39,10 @@ class HmacAndIdempotencyFilterTest {
         applicationRepository = mock(ApplicationRepository.class);
         idempotentRequestRepository = mock(IdempotentRequestRepository.class);
 
+        org.springframework.transaction.PlatformTransactionManager transactionManager = mock(org.springframework.transaction.PlatformTransactionManager.class);
+        when(transactionManager.getTransaction(any())).thenReturn(mock(org.springframework.transaction.TransactionStatus.class));
+        idempotencyFilter = new IdempotencyFilter(idempotentRequestRepository, transactionManager);
         hmacSecurityFilter = new HmacSecurityFilter(applicationRepository);
-        idempotencyFilter = new IdempotencyFilter(idempotentRequestRepository);
 
         adminSecurityInterceptor = new AdminSecurityInterceptor();
         ReflectionTestUtils.setField(adminSecurityInterceptor, "adminSecretToken", "admin_dev_token_12345");

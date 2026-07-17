@@ -9,7 +9,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -21,9 +22,11 @@ import java.util.UUID;
 public class IdempotencyFilter extends OncePerRequestFilter {
 
     private final IdempotentRequestRepository idempotentRequestRepository;
+    private final PlatformTransactionManager transactionManager;
 
-    public IdempotencyFilter(IdempotentRequestRepository idempotentRequestRepository) {
+    public IdempotencyFilter(IdempotentRequestRepository idempotentRequestRepository, PlatformTransactionManager transactionManager) {
         this.idempotentRequestRepository = idempotentRequestRepository;
+        this.transactionManager = transactionManager;
     }
 
     @Override
@@ -97,13 +100,14 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         }
     }
 
-    @Transactional
     protected void markCompleted(UUID applicationId, UUID nonce, int statusCode, String responseBody) {
-        idempotentRequestRepository.findByApplicationIdAndNonce(applicationId, nonce).ifPresent(record -> {
-            record.setCompleted(true);
-            record.setStatusCode(statusCode);
-            record.setResponseBody(responseBody);
-            idempotentRequestRepository.save(record);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            idempotentRequestRepository.findByApplicationIdAndNonce(applicationId, nonce).ifPresent(record -> {
+                record.setCompleted(true);
+                record.setStatusCode(statusCode);
+                record.setResponseBody(responseBody);
+                idempotentRequestRepository.save(record);
+            });
         });
     }
 }
