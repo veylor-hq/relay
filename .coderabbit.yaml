@@ -1,5 +1,5 @@
 # CodeRabbit configuration file
 # For details, see: https://docs.coderabbit.ai/configuration/settings
-
-path_filters:
-  - "!examples/**"
+reviews:
+  path_filters:
+    - "!examples/**"
