@@ -38,3 +38,4 @@ out/
 
 ### Other ###
 .env
+sentry-opentelemetry-agent-*.jar
