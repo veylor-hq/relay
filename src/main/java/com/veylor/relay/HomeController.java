@@ -11,6 +11,6 @@ public class HomeController {
     public ResponseEntity<ApiResponse<Void>> home() {
         return ResponseEntity
                 .ok()
-                .body(new ApiResponse<>(true, "Veylor Relay - Operational", null));
+                .body(ApiResponse.successMessage("Veylor Relay - Operational"));
     }
 }
