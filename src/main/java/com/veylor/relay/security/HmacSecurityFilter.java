@@ -7,6 +7,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -14,6 +15,7 @@ import java.io.IOException;
 import java.util.Optional;
 
 @Component
+@Order(1)
 public class HmacSecurityFilter extends OncePerRequestFilter {
 
     private final ApplicationRepository applicationRepository;
@@ -34,6 +36,7 @@ public class HmacSecurityFilter extends OncePerRequestFilter {
 
         String apiKey = request.getHeader("X-RELAY-API-Key");
         String signature = request.getHeader("X-RELAY-Authorization");
+        String nonce = request.getHeader("X-RELAY-Nonce");
 
         if (apiKey == null || signature == null) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
@@ -54,9 +57,13 @@ public class HmacSecurityFilter extends OncePerRequestFilter {
 
         CachedBodyHttpServletRequest cachedRequest = new CachedBodyHttpServletRequest(request);
         byte[] bodyBytes = cachedRequest.getCachedBody();
-        String computedSignature = HmacUtils.calculateHmac(bodyBytes, apiKey);
 
-        if (!computedSignature.equalsIgnoreCase(signature)) {
+        // Build canonical request string: METHOD\nPATH\nNONCE\nBODY
+        String method = request.getMethod();
+        String canonicalRequest = method + "\n" + path + "\n" + (nonce != null ? nonce : "") + "\n" + new String(bodyBytes, java.nio.charset.StandardCharsets.UTF_8);
+        String computedSignature = HmacUtils.calculateHmac(canonicalRequest.getBytes(java.nio.charset.StandardCharsets.UTF_8), apiKey);
+
+        if (!HmacUtils.constantTimeEquals(computedSignature, signature)) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.getWriter().write("Signature verification failed");
             return;

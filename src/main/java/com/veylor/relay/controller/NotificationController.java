@@ -55,12 +55,12 @@ public class NotificationController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        UUID logId = notificationService.processSingleNotification(request, application);
+        NotificationService.NotificationResult result = notificationService.processSingleNotification(request, application);
 
         SingleResponse response = SingleResponse.builder()
-                .logId(logId)
+                .logId(result.getLogId())
                 .status("SENT")
-                .recipientEmail(request.getEmail())
+                .recipientEmail(result.getResolvedEmail())
                 .build();
 
         return ResponseEntity.ok(response);

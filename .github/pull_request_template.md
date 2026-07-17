@@ -1,20 +1,21 @@
-### Title Format
+# Title Format
 <!-- {type}: {issue_number} - {short_description} -->
 <!-- e.g., feat: REL-1 - Added login screen -->
-### Objective
+
+## Objective
 <!-- Describe the problem and what is to be achieved with this pull request, including a link to the ticket. -->
 Plane: [REL-XXX](https://app.plane.so/veylor-hq/browse/REL-XXX)
 
-### Work Done
+## Work Done
 <!-- Outline your technical solution and the changes made to the codebase. -->
 
-### Platforms Affected
+## Platforms Affected
 <!-- Mark with ✓ or ✕ the affected platforms -->
 - Recipient Portal [ ]
 - Main Server [ ]
 
-### Screenshots / Output
+## Screenshots / Output
 <!-- Add screenshots, logs, or command line outputs representing the desired effect. -->
 
-### Tested
+## Tested
 <!-- Outline the approach you've taken to test the change. -->

@@ -9,6 +9,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@ExactlyOneRecipientIdentifier
 public class NotificationItem {
 
     @Email(message = "Invalid email format")

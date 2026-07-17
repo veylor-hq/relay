@@ -10,13 +10,18 @@ import com.veylor.relay.util.EmailSanitizer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,52 +39,100 @@ public class NotificationService {
     private String fromAddress;
 
     @Async("taskExecutor")
-    @Transactional
     public void processBulkNotifications(List<NotificationItem> items, Application application, UUID batchId) {
-        log.info("Starting processing of bulk notification batch {} with {} items on thread {}", 
+        log.info("Starting processing of bulk notification batch {} with {} items on thread {}",
                  batchId, items.size(), Thread.currentThread());
 
         for (NotificationItem item : items) {
             try {
-                Recipient recipient = resolveRecipient(item);
-
-                sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
-
-                NotificationLog logEntry = NotificationLog.builder()
-                        .batchId(batchId)
-                        .application(application)
-                        .recipient(recipient)
-                        .type(item.getType())
-                        .level(item.getLevel())
-                        .subject(item.getSubject())
-                        .content(item.getContent())
-                        .build();
-                notificationLogRepository.save(logEntry);
-
+                processSingleItemForBulk(item, application, batchId);
             } catch (Exception e) {
-                log.error("Failed to send/log notification for recipient {}: {}", item.getEmail(), e.getMessage(), e);
+                log.error("Failed to send/log notification for recipientId {}: {}",
+                         item.getRecipientId() != null ? item.getRecipientId() : "[email-based]", e.getMessage(), e);
             }
         }
         log.info("Finished processing of bulk notification batch {}", batchId);
     }
 
     @Transactional
-    public UUID processSingleNotification(NotificationItem item, Application application) {
+    protected void processSingleItemForBulk(NotificationItem item, Application application, UUID batchId) {
         Recipient recipient = resolveRecipient(item);
 
-        sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
+        // Persist pending log entry first
+        NotificationLog logEntry = NotificationLog.builder()
+                .batchId(batchId)
+                .application(application)
+                .recipient(recipient)
+                .type(item.getType())
+                .level(item.getLevel())
+                .subject(hashString(item.getSubject()))
+                .content(hashString(item.getContent()))
+                .build();
+        notificationLogRepository.save(logEntry);
 
+        // Send email after transaction commits
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
+                } catch (Exception e) {
+                    log.error("Failed to send email for recipientId {}: {}", recipient.getId(), e.getMessage(), e);
+                }
+            }
+        });
+    }
+
+    @Transactional
+    public NotificationResult processSingleNotification(NotificationItem item, Application application) {
+        Recipient recipient = resolveRecipient(item);
+
+        // Persist pending log entry first
         NotificationLog logEntry = NotificationLog.builder()
                 .application(application)
                 .recipient(recipient)
                 .type(item.getType())
                 .level(item.getLevel())
-                .subject(item.getSubject())
-                .content(item.getContent())
+                .subject(hashString(item.getSubject()))
+                .content(hashString(item.getContent()))
                 .build();
 
         NotificationLog saved = notificationLogRepository.save(logEntry);
-        return saved.getId();
+
+        // Send email after transaction commits
+        final String recipientEmail = recipient.getSanitizedEmail();
+        final String subject = item.getSubject();
+        final String content = item.getContent();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    sendEmail(recipientEmail, subject, content);
+                } catch (Exception e) {
+                    log.error("Failed to send email for recipientId {}: {}", recipient.getId(), e.getMessage(), e);
+                }
+            }
+        });
+
+        return new NotificationResult(saved.getId(), recipientEmail);
+    }
+
+    public static class NotificationResult {
+        private final UUID logId;
+        private final String resolvedEmail;
+
+        public NotificationResult(UUID logId, String resolvedEmail) {
+            this.logId = logId;
+            this.resolvedEmail = resolvedEmail;
+        }
+
+        public UUID getLogId() {
+            return logId;
+        }
+
+        public String getResolvedEmail() {
+            return resolvedEmail;
+        }
     }
 
     private Recipient resolveRecipient(NotificationItem item) {
@@ -90,13 +143,38 @@ public class NotificationService {
             String sanitizedEmail = EmailSanitizer.sanitize(item.getEmail());
             return recipientRepository.findBySanitizedEmail(sanitizedEmail)
                     .orElseGet(() -> {
-                        Recipient newRecipient = Recipient.builder()
-                                .sanitizedEmail(sanitizedEmail)
-                                .build();
-                        return recipientRepository.save(newRecipient);
+                        try {
+                            Recipient newRecipient = Recipient.builder()
+                                    .sanitizedEmail(sanitizedEmail)
+                                    .build();
+                            return recipientRepository.save(newRecipient);
+                        } catch (DataIntegrityViolationException e) {
+                            // Race condition - another thread created this recipient
+                            return recipientRepository.findBySanitizedEmail(sanitizedEmail)
+                                    .orElseThrow(() -> new IllegalStateException("Recipient not found after concurrent creation"));
+                        }
                     });
         } else {
             throw new IllegalArgumentException("Either email or recipientId must be provided");
+        }
+    }
+
+    private String hashString(String input) {
+        if (input == null) {
+            return null;
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder();
+            for (int i = 0; i < Math.min(8, hash.length); i++) {
+                String hex = Integer.toHexString(0xff & hash[i]);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            return "redacted";
         }
     }
 

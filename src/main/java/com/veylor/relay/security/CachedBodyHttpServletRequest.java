@@ -12,12 +12,30 @@ import java.io.*;
 @Getter
 public class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
 
+    private static final int MAX_BODY_SIZE = 1024 * 1024; // 1MB max
     private final byte[] cachedBody;
 
     public CachedBodyHttpServletRequest(HttpServletRequest request) throws IOException {
         super(request);
         InputStream requestInputStream = request.getInputStream();
-        this.cachedBody = StreamUtils.copyToByteArray(requestInputStream);
+        this.cachedBody = readBounded(requestInputStream, MAX_BODY_SIZE);
+    }
+
+    private static byte[] readBounded(InputStream input, int maxSize) throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] temp = new byte[8192];
+        int totalRead = 0;
+        int bytesRead;
+
+        while ((bytesRead = input.read(temp)) != -1) {
+            totalRead += bytesRead;
+            if (totalRead > maxSize) {
+                throw new IOException("Request body exceeds maximum size of " + maxSize + " bytes");
+            }
+            buffer.write(temp, 0, bytesRead);
+        }
+
+        return buffer.toByteArray();
     }
 
     @Override

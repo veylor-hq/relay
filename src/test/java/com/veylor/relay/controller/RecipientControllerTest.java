@@ -69,4 +69,37 @@ class RecipientControllerTest {
         assertEquals(id, response.getBody().getRecipientId());
         verify(recipientRepository, never()).save(any());
     }
+
+    @Test
+    void testSyncRecipientConcurrentCreation() {
+        // Test for Finding #5: Concurrent requests for same sanitizedEmail should both succeed
+        RecipientSyncRequest request = new RecipientSyncRequest("concurrent.user@gmail.com");
+        UUID id = UUID.randomUUID();
+        Recipient existingRecipient = Recipient.builder()
+                .id(id)
+                .sanitizedEmail("concurrentuser@gmail.com")
+                .build();
+
+        // First call: no existing recipient, save throws DataIntegrityViolationException (concurrent insert)
+        // Second findBySanitizedEmail: returns the recipient created by concurrent thread
+        when(recipientRepository.findBySanitizedEmail("concurrentuser@gmail.com"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(existingRecipient));
+
+        when(recipientRepository.save(any(Recipient.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("Unique constraint violation"));
+
+        ResponseEntity<RecipientSyncResponse> response = controller.syncRecipient(request);
+
+        // Should return 200 OK with EXISTING status, not 500 error
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertEquals("concurrentuser@gmail.com", response.getBody().getSanitizedEmail());
+        assertEquals("EXISTING", response.getBody().getStatus());
+        assertEquals(id, response.getBody().getRecipientId());
+
+        // Verify save was attempted but failed, then reload happened
+        verify(recipientRepository, times(1)).save(any(Recipient.class));
+        verify(recipientRepository, times(2)).findBySanitizedEmail("concurrentuser@gmail.com");
+    }
 }

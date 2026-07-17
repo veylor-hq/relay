@@ -46,4 +46,13 @@ public class HmacUtils {
             throw new RuntimeException("Failed to calculate HMAC SHA-256", e);
         }
     }
+
+    public static boolean constantTimeEquals(String a, String b) {
+        if (a == null || b == null) {
+            return a == b;
+        }
+        byte[] aBytes = a.getBytes(StandardCharsets.UTF_8);
+        byte[] bBytes = b.getBytes(StandardCharsets.UTF_8);
+        return MessageDigest.isEqual(aBytes, bBytes);
+    }
 }

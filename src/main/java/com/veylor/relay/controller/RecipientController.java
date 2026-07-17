@@ -7,6 +7,7 @@ import com.veylor.relay.repository.RecipientRepository;
 import com.veylor.relay.util.EmailSanitizer;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -31,11 +32,18 @@ public class RecipientController {
             recipient = existing.get();
             status = "EXISTING";
         } else {
-            recipient = Recipient.builder()
-                    .sanitizedEmail(sanitizedEmail)
-                    .build();
-            recipient = recipientRepository.save(recipient);
-            status = "PROVISIONED";
+            try {
+                recipient = Recipient.builder()
+                        .sanitizedEmail(sanitizedEmail)
+                        .build();
+                recipient = recipientRepository.save(recipient);
+                status = "PROVISIONED";
+            } catch (DataIntegrityViolationException e) {
+                // Race condition - another thread created this recipient
+                recipient = recipientRepository.findBySanitizedEmail(sanitizedEmail)
+                        .orElseThrow(() -> new IllegalStateException("Recipient not found after concurrent creation"));
+                status = "EXISTING";
+            }
         }
 
         RecipientSyncResponse response = RecipientSyncResponse.builder()

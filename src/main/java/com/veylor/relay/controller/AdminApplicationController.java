@@ -8,7 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -42,23 +42,40 @@ public class AdminApplicationController {
     }
 
     @GetMapping
-    public ResponseEntity<List<Application>> listApplications() {
-        return ResponseEntity.ok(applicationRepository.findAll());
+    public ResponseEntity<List<ApplicationResponse>> listApplications() {
+        List<ApplicationResponse> applications = applicationRepository.findAll().stream()
+                .map(app -> ApplicationResponse.builder()
+                        .id(app.getId())
+                        .name(app.getName())
+                        .createdAt(app.getCreatedAt())
+                        .build())
+                .toList();
+        return ResponseEntity.ok(applications);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Application> getApplication(@PathVariable UUID id) {
+    public ResponseEntity<ApplicationResponse> getApplication(@PathVariable UUID id) {
         return applicationRepository.findById(id)
+                .map(app -> ApplicationResponse.builder()
+                        .id(app.getId())
+                        .name(app.getName())
+                        .createdAt(app.getCreatedAt())
+                        .build())
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Application> updateApplication(@PathVariable UUID id, @RequestBody UpdateApplicationRequest request) {
+    public ResponseEntity<ApplicationResponse> updateApplication(@PathVariable UUID id, @RequestBody UpdateApplicationRequest request) {
         return applicationRepository.findById(id)
                 .map(app -> {
                     app.setName(request.getName());
-                    return ResponseEntity.ok(applicationRepository.save(app));
+                    Application saved = applicationRepository.save(app);
+                    return ResponseEntity.ok(ApplicationResponse.builder()
+                            .id(saved.getId())
+                            .name(saved.getName())
+                            .createdAt(saved.getCreatedAt())
+                            .build());
                 })
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -89,7 +106,7 @@ public class AdminApplicationController {
         private UUID id;
         private String name;
         private String apiKey;
-        private LocalDateTime createdAt;
+        private Instant createdAt;
     }
 
     @Getter
@@ -98,5 +115,16 @@ public class AdminApplicationController {
     @AllArgsConstructor
     public static class UpdateApplicationRequest {
         private String name;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class ApplicationResponse {
+        private UUID id;
+        private String name;
+        private Instant createdAt;
     }
 }

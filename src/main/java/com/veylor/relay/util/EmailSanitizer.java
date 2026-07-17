@@ -24,9 +24,8 @@ public class EmailSanitizer {
             }
             localPart = localPart.replace(".", "");
             localPart = localPart.toLowerCase(Locale.ROOT);
-        } else {
-            localPart = localPart.toLowerCase(Locale.ROOT);
         }
+        // For non-Gmail domains, preserve local-part casing
 
         return localPart + "@" + domainPart;
     }
