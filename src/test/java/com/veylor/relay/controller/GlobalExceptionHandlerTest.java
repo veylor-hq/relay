@@ -27,6 +27,11 @@ class GlobalExceptionHandlerTest {
         public void triggerNoHandler() throws NoHandlerFoundException {
             throw new NoHandlerFoundException("GET", "/api/v1/invalid", HttpHeaders.EMPTY);
         }
+
+        @GetMapping("/trigger-generic")
+        public void triggerGeneric() {
+            throw new RuntimeException("Database error or similar");
+        }
     }
 
     private final MockMvc mockMvc = MockMvcBuilders
@@ -60,5 +65,13 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("Route not found /api/v1/invalid"));
+    }
+
+    @Test
+    void testHandleGenericException() throws Exception {
+        mockMvc.perform(get("/trigger-generic"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("An unexpected error occurred"));
     }
 }
