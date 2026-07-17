@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "fastapi-demo"
+version = "0.1.0"
+description = "FastAPI client example integration for Veylor Relay"
+authors = ["Ihor Savenko <contact@ihorsavenko.com>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.139.0"
+uvicorn = "^0.51.0"
+httpx = "^0.27.0"
+pydantic = {extras = ["email"], version = "^2.6.4"}
+python-dotenv = "^1.0.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

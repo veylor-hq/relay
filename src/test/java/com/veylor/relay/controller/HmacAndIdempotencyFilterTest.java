@@ -27,6 +27,8 @@ class HmacAndIdempotencyFilterTest {
 
     private ApplicationRepository applicationRepository;
     private IdempotentRequestRepository idempotentRequestRepository;
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+    private org.springframework.transaction.TransactionStatus transactionStatus;
 
     private HmacSecurityFilter hmacSecurityFilter;
     private IdempotencyFilter idempotencyFilter;
@@ -39,8 +41,11 @@ class HmacAndIdempotencyFilterTest {
         applicationRepository = mock(ApplicationRepository.class);
         idempotentRequestRepository = mock(IdempotentRequestRepository.class);
 
+        transactionManager = mock(org.springframework.transaction.PlatformTransactionManager.class);
+        transactionStatus = mock(org.springframework.transaction.TransactionStatus.class);
+        when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
+        idempotencyFilter = new IdempotencyFilter(idempotentRequestRepository, transactionManager);
         hmacSecurityFilter = new HmacSecurityFilter(applicationRepository);
-        idempotencyFilter = new IdempotencyFilter(idempotentRequestRepository);
 
         adminSecurityInterceptor = new AdminSecurityInterceptor();
         ReflectionTestUtils.setField(adminSecurityInterceptor, "adminSecretToken", "admin_dev_token_12345");
@@ -260,6 +265,10 @@ class HmacAndIdempotencyFilterTest {
         assertTrue(completedCaptor.getValue().getCompleted());
         assertEquals(HttpServletResponse.SC_OK, completedCaptor.getValue().getStatusCode());
         assertEquals("{\"result\":\"success\"}", completedCaptor.getValue().getResponseBody());
+
+        // Verify transaction manager operations
+        verify(transactionManager, times(1)).getTransaction(any());
+        verify(transactionManager, times(1)).commit(transactionStatus);
     }
 
     @Test
