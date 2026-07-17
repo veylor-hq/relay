@@ -30,7 +30,9 @@ public class RestServiceApplication {
                         } else if (value.startsWith("'") && value.endsWith("'") && value.length() >= 2) {
                             value = value.substring(1, value.length() - 1);
                         }
-                        System.setProperty(key, value);
+                        if (System.getProperty(key) == null) {
+                            System.setProperty(key, value);
+                        }
                     }
                 }
             } catch (java.io.IOException e) {
