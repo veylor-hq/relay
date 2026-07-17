@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: relay-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-veylor_relay}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-veylor_relay}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  relay:
+    image: registry.ihorsavenko.com/relay:${RELAY_IMAGE_TAG:-latest}
+    container_name: relay-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_URL=jdbc:postgresql://postgres:5432/${DB_NAME:-veylor_relay}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - ADMIN_SECRET_TOKEN=${ADMIN_SECRET_TOKEN}
+      - MAIL_HOST=${MAIL_HOST:-localhost}
+      - MAIL_PORT=${MAIL_PORT:-1025}
+      - MAIL_USERNAME=${MAIL_USERNAME:-}
+      - MAIL_PASSWORD=${MAIL_PASSWORD:-}
+      - MAIL_FROM_ADDRESS=${MAIL_FROM_ADDRESS:-relay@veylor.com}
+      - MAIL_SMTP_AUTH=${MAIL_SMTP_AUTH:-false}
+      - MAIL_SMTP_STARTTLS=${MAIL_SMTP_STARTTLS:-false}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+    ports:
+      # Exposed locally so internal gRPC/REST over Tailscale can reach it.
+      # If tailscale is on the host, clients can call http://<tailscale-ip>:8080
+      - "127.0.0.1:8080:8080"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: relay-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - relay
+
+  # Optional Tailscale sidecar container. 
+  # If you prefer running Tailscale inside Docker instead of on the host machine,
+  # uncomment the following service and configure TS_AUTHKEY in your .env file.
+  # tailscale:
+  #   image: tailscale/tailscale:latest
+  #   container_name: relay-tailscale
+  #   restart: unless-stopped
+  #   volumes:
+  #     - tsdata:/var/lib/tailscale
+  #     - /dev/net/tun:/dev/net/tun
+  #   cap_add:
+  #     - NET_ADMIN
+  #     - SYS_MODULE
+  #   environment:
+  #     - TS_AUTHKEY=${TS_AUTHKEY}
+  #     - TS_STATEFUL_CONFIG=true
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+  # tsdata:
