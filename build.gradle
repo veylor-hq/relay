@@ -76,4 +76,23 @@ bootRun {
         jvmArgs "-javaagent:sentry-opentelemetry-agent-8.49.0.jar"
         environment "SENTRY_AUTO_INIT", "false"
     }
+
+    // Default OTEL exporters to 'none' to avoid localhost:4318 connection failures
+    environment "OTEL_TRACES_EXPORTER", "none"
+    environment "OTEL_METRICS_EXPORTER", "none"
+    environment "OTEL_LOGS_EXPORTER", "none"
+
+    // Load .env variables if the file exists (overriding defaults if defined there)
+    if (file(".env").exists()) {
+        file(".env").readLines().each { line ->
+            line = line.trim()
+            if (line && !line.startsWith("#")) {
+                def parts = line.split("=", 2)
+                if (parts.length == 2) {
+                    environment parts[0].trim(), parts[1].trim()
+                }
+            }
+        }
+    }
 }
+

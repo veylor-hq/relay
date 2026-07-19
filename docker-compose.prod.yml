@@ -35,6 +35,9 @@ services:
       - MAIL_SMTP_AUTH=${MAIL_SMTP_AUTH:-false}
       - MAIL_SMTP_STARTTLS=${MAIL_SMTP_STARTTLS:-false}
       - SENTRY_DSN=${SENTRY_DSN:-}
+      - OTEL_TRACES_EXPORTER=${OTEL_TRACES_EXPORTER:-none}
+      - OTEL_METRICS_EXPORTER=${OTEL_METRICS_EXPORTER:-none}
+      - OTEL_LOGS_EXPORTER=${OTEL_LOGS_EXPORTER:-none}
     ports:
       # Exposed locally so internal gRPC/REST over Tailscale can reach it.
       # If tailscale is on the host, clients can call http://<tailscale-ip>:8080

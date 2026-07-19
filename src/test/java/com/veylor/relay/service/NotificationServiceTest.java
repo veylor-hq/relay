@@ -5,10 +5,10 @@ import com.veylor.relay.entity.Application;
 import com.veylor.relay.entity.NotificationLog;
 import com.veylor.relay.entity.Recipient;
 import com.veylor.relay.repository.NotificationLogRepository;
-import com.veylor.relay.repository.RecipientRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 
@@ -24,17 +24,32 @@ import static org.mockito.Mockito.*;
 class NotificationServiceTest {
 
     private JavaMailSender mailSender;
-    private RecipientRepository recipientRepository;
+    private RecipientService recipientService;
     private NotificationLogRepository notificationLogRepository;
+    private LogStatus logStatus;
+    private ObjectProvider<NotificationService> selfProvider;
     private NotificationService notificationService;
 
     @BeforeEach
+    @SuppressWarnings("unchecked")
     void setUp() {
         mailSender = mock(JavaMailSender.class);
-        recipientRepository = mock(RecipientRepository.class);
+        recipientService = mock(RecipientService.class);
         notificationLogRepository = mock(NotificationLogRepository.class);
         org.springframework.transaction.PlatformTransactionManager transactionManager = mock(org.springframework.transaction.PlatformTransactionManager.class);
-        notificationService = new NotificationService(mailSender, recipientRepository, notificationLogRepository, transactionManager);
+        logStatus = mock(LogStatus.class);
+        selfProvider = mock(ObjectProvider.class);
+
+        notificationService = new NotificationService(
+                mailSender,
+                recipientService,
+                notificationLogRepository,
+                transactionManager,
+                logStatus,
+                selfProvider
+        );
+
+        when(selfProvider.getIfAvailable()).thenReturn(notificationService);
     }
 
     @Test
@@ -55,7 +70,7 @@ class NotificationServiceTest {
                 .sanitizedEmail("testuser@gmail.com")
                 .build();
 
-        when(recipientRepository.findBySanitizedEmail("testuser@gmail.com"))
+        when(recipientService.findBySanitizedEmail("testuser@gmail.com"))
                 .thenReturn(Optional.of(mockRecipient));
 
         notificationService.processBulkNotifications(List.of(item), app, batchId);
@@ -90,7 +105,7 @@ class NotificationServiceTest {
                 .sanitizedEmail("singleuser@gmail.com")
                 .build();
 
-        when(recipientRepository.findBySanitizedEmail("singleuser@gmail.com"))
+        when(recipientService.findBySanitizedEmail("singleuser@gmail.com"))
                 .thenReturn(Optional.of(mockRecipient));
 
         NotificationLog mockLog = NotificationLog.builder().id(UUID.randomUUID()).build();
@@ -99,11 +114,45 @@ class NotificationServiceTest {
         NotificationService.NotificationResult result = notificationService.processSingleNotification(item, app);
 
         assertNotNull(result);
-        assertEquals(mockLog.getId(), result.getLogId());
+        assertEquals(mockLog.getId(), result.logId());
 
         ArgumentCaptor<SimpleMailMessage> mailCaptor = ArgumentCaptor.forClass(SimpleMailMessage.class);
         verify(mailSender, times(1)).send(mailCaptor.capture());
         assertEquals("singleuser@gmail.com", mailCaptor.getValue().getTo()[0]);
         assertEquals("Transactional Alert", mailCaptor.getValue().getSubject());
+    }
+
+    @Test
+    void testResolveRecipientFallbacksOnDataIntegrityViolation() {
+        NotificationItem item = NotificationItem.builder()
+                .email("conflict@gmail.com")
+                .subject("Transactional Alert")
+                .content("...")
+                .type("EMAIL")
+                .level("INFO")
+                .build();
+
+        Application app = Application.builder().id(UUID.randomUUID()).name("Client").build();
+        Recipient mockRecipient = Recipient.builder()
+                .id(UUID.randomUUID())
+                .sanitizedEmail("conflict@gmail.com")
+                .build();
+
+        when(recipientService.findBySanitizedEmail("conflict@gmail.com"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(mockRecipient));
+
+        when(recipientService.createRecipientWithNewTransaction("conflict@gmail.com"))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("Duplicate key"));
+
+        NotificationLog mockLog = NotificationLog.builder().id(UUID.randomUUID()).build();
+        when(notificationLogRepository.save(any(NotificationLog.class))).thenReturn(mockLog);
+
+        NotificationService.NotificationResult result = notificationService.processSingleNotification(item, app);
+
+        assertNotNull(result);
+        assertEquals("conflict@gmail.com", result.resolvedEmail());
+        verify(recipientService, times(2)).findBySanitizedEmail("conflict@gmail.com");
+        verify(recipientService, times(1)).createRecipientWithNewTransaction("conflict@gmail.com");
     }
 }
