@@ -84,12 +84,28 @@ public class NotificationService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
+                    boolean emailSentSuccessfully = false;
+
                     try {
                         sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
-                        logStatus.updateLogStatus(saved.getId(), "SENT");
+                        emailSentSuccessfully = true;
                     } catch (Exception e) {
                         log.error("Failed to send email for recipientId {}: {}", recipient.getId(), e.getMessage(), e);
-                        logStatus.updateLogStatus(saved.getId(), "FAILED");
+
+                        try {
+                            logStatus.updateLogStatus(saved.getId(), "FAILED");
+                        } catch (Exception dbEx) {
+                            log.error("Failed to update status to FAILED for savedId {}", saved.getId(), dbEx);
+                        }
+                    }
+
+                    if (emailSentSuccessfully) {
+                        try {
+                            logStatus.updateLogStatus(saved.getId(), "SENT");
+                        } catch (Exception e) {
+                            log.error("Email sent successfully, but failed to update log status to SENT for savedId {}: {}",
+                                    saved.getId(), e.getMessage(), e);
+                        }
                     }
                 }
             });
