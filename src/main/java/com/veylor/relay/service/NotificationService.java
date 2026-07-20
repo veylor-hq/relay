@@ -4,6 +4,8 @@ import com.veylor.relay.dto.NotificationItem;
 import com.veylor.relay.entity.Application;
 import com.veylor.relay.entity.NotificationLog;
 import com.veylor.relay.entity.Recipient;
+import com.veylor.relay.entity.NotificationJob;
+import com.veylor.relay.repository.NotificationJobRepository;
 import com.veylor.relay.repository.NotificationLogRepository;
 import com.veylor.relay.util.EmailSanitizer;
 import lombok.RequiredArgsConstructor;
@@ -11,13 +13,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -33,17 +31,12 @@ public class NotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
-    private final JavaMailSender mailSender;
     private final RecipientService recipientService;
     private final NotificationLogRepository notificationLogRepository;
+    private final NotificationJobRepository notificationJobRepository;
     private final PlatformTransactionManager transactionManager;
-    private final LogStatus logStatus;
     private final ObjectProvider<NotificationService> selfProvider;
 
-    @Value("${spring.mail.from-address}")
-    private String fromAddress;
-
-    @Async("taskExecutor")
     public void processBulkNotifications(List<NotificationItem> items, Application application, UUID batchId) {
         log.info("Starting processing of bulk notification batch {} with {} items on thread {}",
                  batchId, items.size(), Thread.currentThread());
@@ -52,8 +45,9 @@ public class NotificationService {
 
         for (NotificationItem item : items) {
             try {
+                Recipient recipient = resolveRecipient(item);
                 transactionTemplate.executeWithoutResult(status -> {
-                    selfProvider.getIfAvailable().processSingleItemForBulk(item, application, batchId);
+                    selfProvider.getIfAvailable().saveLogAndJobForBulk(item, application, recipient, batchId);
                 });
             } catch (Exception e) {
                 log.error("Failed to send/log notification for recipientId {}: {}",
@@ -64,9 +58,8 @@ public class NotificationService {
     }
 
     @Transactional
-    public void processSingleItemForBulk(NotificationItem item, Application application, UUID batchId) {
-        log.info("processSingleItemForBulk transaction active: {}", TransactionSynchronizationManager.isActualTransactionActive());
-        Recipient recipient = resolveRecipient(item);
+    public void saveLogAndJobForBulk(NotificationItem item, Application application, Recipient recipient, UUID batchId) {
+        log.info("saveLogAndJobForBulk transaction active: {}", TransactionSynchronizationManager.isActualTransactionActive());
 
         NotificationLog logEntry = NotificationLog.builder()
                 .batchId(batchId)
@@ -80,52 +73,28 @@ public class NotificationService {
                 .build();
         NotificationLog saved = notificationLogRepository.save(logEntry);
 
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    boolean emailSentSuccessfully = false;
+        NotificationJob jobEntry = NotificationJob.builder()
+                .id(saved.getId())
+                .batchId(batchId)
+                .application(application)
+                .recipient(recipient)
+                .type(item.getType())
+                .level(item.getLevel())
+                .subject(item.getSubject())
+                .content(item.getContent())
+                .status("PENDING")
+                .build();
+        notificationJobRepository.save(jobEntry);
+    }
 
-                    try {
-                        sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
-                        emailSentSuccessfully = true;
-                    } catch (Exception e) {
-                        log.error("Failed to send email for recipientId {}: {}", recipient.getId(), e.getMessage(), e);
-
-                        try {
-                            logStatus.updateLogStatus(saved.getId(), "FAILED");
-                        } catch (Exception dbEx) {
-                            log.error("Failed to update status to FAILED for savedId {}", saved.getId(), dbEx);
-                        }
-                    }
-
-                    if (emailSentSuccessfully) {
-                        try {
-                            logStatus.updateLogStatus(saved.getId(), "SENT");
-                        } catch (Exception e) {
-                            log.error("Email sent successfully, but failed to update log status to SENT for savedId {}: {}",
-                                    saved.getId(), e.getMessage(), e);
-                        }
-                    }
-                }
-            });
-        } else {
-            try {
-                sendEmail(recipient.getSanitizedEmail(), item.getSubject(), item.getContent());
-                saved.setStatus("SENT");
-                notificationLogRepository.save(saved);
-            } catch (Exception e) {
-                saved.setStatus("FAILED");
-                notificationLogRepository.save(saved);
-                throw e;
-            }
-        }
+    public NotificationResult processSingleNotification(NotificationItem item, Application application) {
+        Recipient recipient = resolveRecipient(item);
+        return selfProvider.getIfAvailable().saveLogAndJob(item, application, recipient);
     }
 
     @Transactional
-    public NotificationResult processSingleNotification(NotificationItem item, Application application) {
-        log.info("processSingleNotification transaction active: {}", TransactionSynchronizationManager.isActualTransactionActive());
-        Recipient recipient = resolveRecipient(item);
+    public NotificationResult saveLogAndJob(NotificationItem item, Application application, Recipient recipient) {
+        log.info("saveLogAndJob transaction active: {}", TransactionSynchronizationManager.isActualTransactionActive());
 
         NotificationLog logEntry = NotificationLog.builder()
                 .application(application)
@@ -136,39 +105,22 @@ public class NotificationService {
                 .content(hashString(item.getContent()))
                 .status("PENDING")
                 .build();
-
         NotificationLog saved = notificationLogRepository.save(logEntry);
 
-        final String recipientEmail = recipient.getSanitizedEmail();
-        final String subject = item.getSubject();
-        final String content = item.getContent();
-        String outcomeStatus = "PENDING";
+        NotificationJob jobEntry = NotificationJob.builder()
+                .id(saved.getId())
+                .application(application)
+                .recipient(recipient)
+                .type(item.getType())
+                .level(item.getLevel())
+                .subject(item.getSubject())
+                .content(item.getContent())
+                .status("PENDING")
+                .build();
+        notificationJobRepository.save(jobEntry);
 
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    try {
-                        sendEmail(recipientEmail, subject, content);
-                        logStatus.updateLogStatus(saved.getId(), "SENT");
-                    } catch (Exception e) {
-                        log.error("Failed to send email for recipientId {}: {}", recipient.getId(), e.getMessage(), e);
-                        logStatus.updateLogStatus(saved.getId(), "FAILED");
-                    }
-                }
-            });
-        } else {
-            try {
-                sendEmail(recipientEmail, subject, content);
-                saved.setStatus("SENT");
-                notificationLogRepository.save(saved);
-                outcomeStatus = "SENT";
-            } catch (Exception e) {
-                saved.setStatus("FAILED");
-                notificationLogRepository.save(saved);
-                throw e;
-            }
-        }
+        final String recipientEmail = recipient.getSanitizedEmail();
+        String outcomeStatus = "PENDING";
 
         return new NotificationResult(saved.getId(), recipientEmail, outcomeStatus);
     }
@@ -218,12 +170,5 @@ public class NotificationService {
         }
     }
 
-    private void sendEmail(String to, String subject, String content) {
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setTo(to);
-        message.setSubject(subject);
-        message.setText(content);
-        message.setFrom(fromAddress);
-        mailSender.send(message);
-    }
+
 }

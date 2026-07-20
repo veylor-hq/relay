@@ -3,14 +3,14 @@ package com.veylor.relay.service;
 import com.veylor.relay.dto.NotificationItem;
 import com.veylor.relay.entity.Application;
 import com.veylor.relay.entity.NotificationLog;
+import com.veylor.relay.entity.NotificationJob;
 import com.veylor.relay.entity.Recipient;
 import com.veylor.relay.repository.NotificationLogRepository;
+import com.veylor.relay.repository.NotificationJobRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 
 import java.util.List;
 import java.util.Optional;
@@ -23,29 +23,26 @@ import static org.mockito.Mockito.*;
 
 class NotificationServiceTest {
 
-    private JavaMailSender mailSender;
     private RecipientService recipientService;
     private NotificationLogRepository notificationLogRepository;
-    private LogStatus logStatus;
+    private NotificationJobRepository notificationJobRepository;
     private ObjectProvider<NotificationService> selfProvider;
     private NotificationService notificationService;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setUp() {
-        mailSender = mock(JavaMailSender.class);
         recipientService = mock(RecipientService.class);
         notificationLogRepository = mock(NotificationLogRepository.class);
+        notificationJobRepository = mock(NotificationJobRepository.class);
         org.springframework.transaction.PlatformTransactionManager transactionManager = mock(org.springframework.transaction.PlatformTransactionManager.class);
-        logStatus = mock(LogStatus.class);
         selfProvider = mock(ObjectProvider.class);
 
         notificationService = new NotificationService(
-                mailSender,
                 recipientService,
                 notificationLogRepository,
+                notificationJobRepository,
                 transactionManager,
-                logStatus,
                 selfProvider
         );
 
@@ -73,20 +70,26 @@ class NotificationServiceTest {
         when(recipientService.findBySanitizedEmail("testuser@gmail.com"))
                 .thenReturn(Optional.of(mockRecipient));
 
+        NotificationLog mockLog = NotificationLog.builder().id(UUID.randomUUID()).build();
+        when(notificationLogRepository.save(any(NotificationLog.class))).thenReturn(mockLog);
+
         notificationService.processBulkNotifications(List.of(item), app, batchId);
 
-        ArgumentCaptor<SimpleMailMessage> mailCaptor = ArgumentCaptor.forClass(SimpleMailMessage.class);
-        verify(mailSender, times(1)).send(mailCaptor.capture());
-        assertEquals("testuser@gmail.com", mailCaptor.getValue().getTo()[0]);
-        assertEquals("Hey", mailCaptor.getValue().getSubject());
-        assertEquals("Hello World", mailCaptor.getValue().getText());
-
+        // Verify audit log is saved with hashed details
         ArgumentCaptor<NotificationLog> logCaptor = ArgumentCaptor.forClass(NotificationLog.class);
         verify(notificationLogRepository, times(1)).save(logCaptor.capture());
         assertEquals("EMAIL", logCaptor.getValue().getType());
         assertEquals("INFO", logCaptor.getValue().getLevel());
         assertNotNull(logCaptor.getValue().getSubject());
-        assertNotEquals("Hey", logCaptor.getValue().getSubject());
+        assertNotEquals("Hey", logCaptor.getValue().getSubject()); // Subject is hashed
+
+        // Verify transient job is saved with raw details
+        ArgumentCaptor<NotificationJob> jobCaptor = ArgumentCaptor.forClass(NotificationJob.class);
+        verify(notificationJobRepository, times(1)).save(jobCaptor.capture());
+        assertEquals("EMAIL", jobCaptor.getValue().getType());
+        assertEquals("INFO", jobCaptor.getValue().getLevel());
+        assertEquals("Hey", jobCaptor.getValue().getSubject()); // Subject is plain text
+        assertEquals("Hello World", jobCaptor.getValue().getContent()); // Content is plain text
     }
 
     @Test
@@ -115,11 +118,18 @@ class NotificationServiceTest {
 
         assertNotNull(result);
         assertEquals(mockLog.getId(), result.logId());
+        assertEquals("PENDING", result.status());
 
-        ArgumentCaptor<SimpleMailMessage> mailCaptor = ArgumentCaptor.forClass(SimpleMailMessage.class);
-        verify(mailSender, times(1)).send(mailCaptor.capture());
-        assertEquals("singleuser@gmail.com", mailCaptor.getValue().getTo()[0]);
-        assertEquals("Transactional Alert", mailCaptor.getValue().getSubject());
+        // Verify audit log is saved with hashed details
+        ArgumentCaptor<NotificationLog> logCaptor = ArgumentCaptor.forClass(NotificationLog.class);
+        verify(notificationLogRepository, times(1)).save(logCaptor.capture());
+        assertNotEquals("Transactional Alert", logCaptor.getValue().getSubject());
+
+        // Verify transient job is saved with raw details
+        ArgumentCaptor<NotificationJob> jobCaptor = ArgumentCaptor.forClass(NotificationJob.class);
+        verify(notificationJobRepository, times(1)).save(jobCaptor.capture());
+        assertEquals("Transactional Alert", jobCaptor.getValue().getSubject());
+        assertEquals("Immediate password reset link...", jobCaptor.getValue().getContent());
     }
 
     @Test
