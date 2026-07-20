@@ -2,20 +2,21 @@ package com.veylor.relay.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.springframework.data.domain.Persistable;
+
 import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "notification_logs")
+@Table(name = "notification_jobs")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class NotificationLog {
+public class NotificationJob implements Persistable<UUID> {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(name = "batch_id")
@@ -38,7 +39,7 @@ public class NotificationLog {
     @Column(nullable = false)
     private String subject;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
 
     @Column(name = "status", nullable = false)
@@ -49,8 +50,20 @@ public class NotificationLog {
     @Builder.Default
     private Instant createdAt = Instant.now();
 
-    @Column(name = "processed_at")
-    private Instant processedAt;
+    @Transient
+    @Builder.Default
+    private boolean isNew = true;
+
+    @Override
+    public boolean isNew() {
+        return isNew;
+    }
+
+    @PostPersist
+    @PostLoad
+    protected void markNotNew() {
+        this.isNew = false;
+    }
 
     @PrePersist
     protected void onCreate() {
@@ -58,5 +71,4 @@ public class NotificationLog {
             createdAt = Instant.now();
         }
     }
-
 }
