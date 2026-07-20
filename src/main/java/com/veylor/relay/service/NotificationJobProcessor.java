@@ -65,6 +65,9 @@ public class NotificationJobProcessor {
 
             sendEmail(job.getRecipient().getSanitizedEmail(), job.getSubject(), job.getContent());
             emailSentSuccessfully = true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            error = e;
         } catch (Exception e) {
             error = e;
         }

@@ -14,6 +14,9 @@ public class FlywayConfig {
     @org.springframework.beans.factory.annotation.Value("${spring.flyway.enabled:true}")
     private boolean flywayEnabled;
 
+    @org.springframework.beans.factory.annotation.Value("${spring.flyway.baseline-on-migrate:false}")
+    private boolean baselineOnMigrate;
+
     public FlywayConfig(DataSource dataSource) {
         this.dataSource = dataSource;
     }
@@ -26,7 +29,7 @@ public class FlywayConfig {
         Flyway.configure()
                 .dataSource(dataSource)
                 .locations("classpath:db/migration")
-                .baselineOnMigrate(true)
+                .baselineOnMigrate(baselineOnMigrate)
                 .load()
                 .migrate();
     }
