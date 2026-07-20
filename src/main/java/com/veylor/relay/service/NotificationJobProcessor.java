@@ -53,52 +53,63 @@ public class NotificationJobProcessor {
 
     @Async("taskExecutor")
     public void processJobAsync(NotificationJob job) {
-        log.info("Processing notification job ID: {} on thread {}", job.getId(), Thread.currentThread());
+        log.info("Processing notification job ID: {} (attempt {}/{}) on thread {}", 
+                 job.getId(), job.getRetries() + 1, maxRetryAttempts, Thread.currentThread());
 
-        int attempt = 0;
-        long interval = initialIntervalMs;
         boolean emailSentSuccessfully = false;
+        Exception error = null;
 
-        while (attempt < maxRetryAttempts) {
-            attempt++;
-            try {
-                // Apply rate limiting before sending
-                rateLimiter.acquire();
+        try {
+            // Apply rate limiting before sending
+            rateLimiter.acquire();
 
-                sendEmail(job.getRecipient().getSanitizedEmail(), job.getSubject(), job.getContent());
-                emailSentSuccessfully = true;
-                break;
-            } catch (Exception e) {
-                boolean isRateLimited = e.getMessage() != null && (e.getMessage().contains("421") || e.getMessage().toLowerCase().contains("rate limit"));
-                long currentBackoff = isRateLimited ? Math.max(interval * 2, 5000) : interval;
-                log.warn("Failed to send email for job ID: {} (attempt {}/{}): {}. Backoff: {}ms",
-                         job.getId(), attempt, maxRetryAttempts, e.getMessage(), currentBackoff);
-                if (attempt < maxRetryAttempts) {
-                    try {
-                        Thread.sleep(currentBackoff);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        log.error("Retry backoff sleep interrupted for job ID: {}", job.getId());
-                        break;
-                    }
-                    interval = Math.min((long) (currentBackoff * retryMultiplier), maxIntervalMs);
-                }
-            }
+            sendEmail(job.getRecipient().getSanitizedEmail(), job.getSubject(), job.getContent());
+            emailSentSuccessfully = true;
+        } catch (Exception e) {
+            error = e;
         }
 
         final boolean success = emailSentSuccessfully;
+        final Exception finalError = error;
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+
         try {
             transactionTemplate.executeWithoutResult(status -> {
                 if (success) {
                     updateAuditLogStatus(job, "SENT");
+                    jobRepository.delete(job);
                 } else {
-                    updateAuditLogStatus(job, "FAILED");
+                    int nextRetryCount = job.getRetries() + 1;
+                    if (nextRetryCount >= maxRetryAttempts) {
+                        log.error("Job ID: {} permanently failed after {} attempts: {}", 
+                                  job.getId(), maxRetryAttempts, finalError.getMessage());
+                        updateAuditLogStatus(job, "FAILED");
+                        jobRepository.delete(job);
+                    } else {
+                        boolean isRateLimited = finalError.getMessage() != null && 
+                                (finalError.getMessage().contains("421") || finalError.getMessage().toLowerCase().contains("rate limit"));
+                        
+                        // Calculate exponential backoff
+                        long backoff = (long) (initialIntervalMs * Math.pow(retryMultiplier, job.getRetries()));
+                        if (isRateLimited) {
+                            backoff = Math.max(backoff, 5000);
+                        }
+                        backoff = Math.min(backoff, maxIntervalMs);
+
+                        log.warn("Job ID: {} failed attempt {}/{}. Scheduling retry in {}ms: {}", 
+                                 job.getId(), nextRetryCount, maxRetryAttempts, backoff, finalError.getMessage());
+
+                        // Reschedule job in DB by updating state
+                        NotificationJob managedJob = jobRepository.findById(job.getId()).orElse(job);
+                        managedJob.setRetries(nextRetryCount);
+                        managedJob.setRetryAfter(Instant.now().plusMillis(backoff));
+                        managedJob.setStatus("PENDING");
+                        jobRepository.save(managedJob);
+                    }
                 }
-                jobRepository.delete(job);
             });
         } catch (Exception e) {
-            log.error("Failed to update status and delete Job for job ID {}: {}", job.getId(), e.getMessage(), e);
+            log.error("Failed to update status or delete Job for job ID {}: {}", job.getId(), e.getMessage(), e);
         }
     }
 

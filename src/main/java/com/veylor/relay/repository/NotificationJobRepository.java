@@ -16,7 +16,7 @@ public interface NotificationJobRepository extends JpaRepository<NotificationJob
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     // '-2' tells Hibernate/PostgreSQL to use "SKIP LOCKED"
     @QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")})
-    @Query("SELECT j FROM NotificationJob j JOIN FETCH j.recipient JOIN FETCH j.application WHERE j.status = 'PENDING' ORDER BY j.createdAt ASC")
+    @Query("SELECT j FROM NotificationJob j JOIN FETCH j.recipient JOIN FETCH j.application WHERE j.status = 'PENDING' AND (j.retryAfter IS NULL OR j.retryAfter <= CURRENT_TIMESTAMP) ORDER BY j.createdAt ASC")
     List<NotificationJob> findNextPendingJobs(Pageable pageable);
 
     @org.springframework.data.jpa.repository.Modifying

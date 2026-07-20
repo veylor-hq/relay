@@ -50,6 +50,13 @@ public class NotificationJob implements Persistable<UUID> {
     @Builder.Default
     private Instant createdAt = Instant.now();
 
+    @Column(name = "retries", nullable = false)
+    @Builder.Default
+    private int retries = 0;
+
+    @Column(name = "retry_after")
+    private Instant retryAfter;
+
     @Transient
     @Builder.Default
     private boolean isNew = true;

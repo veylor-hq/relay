@@ -1,0 +1,2 @@
+ALTER TABLE notification_jobs ADD COLUMN retries INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE notification_jobs ADD COLUMN retry_after TIMESTAMP WITH TIME ZONE;

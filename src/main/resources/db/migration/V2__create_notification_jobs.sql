@@ -12,3 +12,5 @@ CREATE TABLE IF NOT EXISTS notification_jobs (
     CONSTRAINT fk_notification_jobs_application FOREIGN KEY (application_id) REFERENCES applications (id) ON DELETE CASCADE,
     CONSTRAINT fk_notification_jobs_recipient FOREIGN KEY (recipient_id) REFERENCES recipients (id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_notification_jobs_status_retry_created ON notification_jobs (status, retry_after, created_at ASC);
