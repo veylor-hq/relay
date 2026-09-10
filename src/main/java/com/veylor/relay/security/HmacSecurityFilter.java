@@ -54,6 +54,11 @@ public class HmacSecurityFilter extends OncePerRequestFilter {
         }
 
         Application application = applicationOpt.get();
+        if (application.getEnabled() != null && !application.getEnabled()) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.getWriter().write("Application is disabled");
+            return;
+        }
 
         CachedBodyHttpServletRequest cachedRequest;
         try {

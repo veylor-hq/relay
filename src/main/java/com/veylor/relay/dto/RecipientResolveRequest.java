@@ -1,5 +1,6 @@
 package com.veylor.relay.dto;
 
+import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import java.util.UUID;
 
@@ -8,9 +9,8 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RecipientSyncResponse {
+public class RecipientResolveRequest {
+
+    @NotNull(message = "recipientId is required")
     private UUID recipientId;
-    private String sanitizedEmail;
-    private String name;
-    private String status;
 }

@@ -12,6 +12,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Slf4j
@@ -27,6 +29,9 @@ public class NotificationOutboxPoller {
     @Value("${app.outbox.poller.batch-size:100}")
     private int batchSize;
 
+    @Value("${app.outbox.processing-timeout-minutes:5}")
+    private int processingTimeoutMinutes;
+
     @Scheduled(fixedDelayString = "${app.outbox.poller.fixed-delay-ms:5000}")
     public void pollAndDispatch() {
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
@@ -35,8 +40,10 @@ public class NotificationOutboxPoller {
             if (pendingJobs.isEmpty()) {
                 return List.of();
             }
+            Instant now = Instant.now();
             for (NotificationJob job : pendingJobs) {
                 job.setStatus("PROCESSING");
+                job.setProcessingStartedAt(now);
             }
             return jobRepository.saveAll(pendingJobs);
         });
@@ -46,6 +53,24 @@ public class NotificationOutboxPoller {
             for (NotificationJob job : jobsToDispatch) {
                 jobProcessor.processJobAsync(job);
             }
+        }
+    }
+
+    /**
+     * Periodic sweep to recover any jobs orphaned in PROCESSING status while Relay is running
+     * (e.g. if a thread or node suffered an unhandled crash or network interruption).
+     */
+    @Scheduled(fixedDelayString = "${app.outbox.orphan-sweep-delay-ms:60000}")
+    public void recoverOrphanedJobs() {
+        try {
+            Instant cutoff = Instant.now().minus(processingTimeoutMinutes, ChronoUnit.MINUTES);
+            int recovered = jobRepository.recoverOrphanedProcessingJobs(cutoff);
+            if (recovered > 0) {
+                log.warn("Recovered {} orphaned PROCESSING outbox jobs back to PENDING (exceeded {}m timeout)", 
+                         recovered, processingTimeoutMinutes);
+            }
+        } catch (Exception e) {
+            log.error("Failed to recover orphaned processing jobs", e);
         }
     }
 }

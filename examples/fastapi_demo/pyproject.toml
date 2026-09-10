@@ -12,6 +12,7 @@ uvicorn = "^0.51.0"
 httpx = "^0.27.0"
 pydantic = {extras = ["email"], version = "^2.6.4"}
 python-dotenv = "^1.0.1"
+aiosmtpd = "^1.4.6"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

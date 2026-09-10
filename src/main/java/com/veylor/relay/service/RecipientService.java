@@ -1,5 +1,6 @@
 package com.veylor.relay.service;
 
+import com.veylor.relay.entity.Application;
 import com.veylor.relay.entity.Recipient;
 import com.veylor.relay.repository.RecipientRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,10 +29,18 @@ public class RecipientService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public Recipient createRecipientWithNewTransaction(String sanitizedEmail) {
+    public Recipient createRecipientWithNewTransaction(String sanitizedEmail, String name, String metadata, Application app) {
         Recipient newRecipient = Recipient.builder()
                 .sanitizedEmail(sanitizedEmail)
+                .name(name)
+                .metadata(metadata)
+                .createdByApp(app)
                 .build();
         return recipientRepository.saveAndFlush(newRecipient);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public Recipient createRecipientWithNewTransaction(String sanitizedEmail) {
+        return createRecipientWithNewTransaction(sanitizedEmail, null, null, null);
     }
 }

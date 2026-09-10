@@ -21,16 +21,13 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class NotificationJobProcessor {
 
-    private final JavaMailSender mailSender;
+    private final EmailSenderProviderService emailSenderProviderService;
     private final NotificationJobRepository jobRepository;
     private final NotificationLogRepository logRepository;
     private final PlatformTransactionManager transactionManager;
 
     @Value("${app.outbox.max-retry-attempts:3}")
     private int maxRetryAttempts;
-
-    @Value("${spring.mail.from-address}")
-    private String fromAddress;
 
     @Value("${app.outbox.rate-limit.emails-per-second:10}")
     private double emailsPerSecond;
@@ -63,7 +60,7 @@ public class NotificationJobProcessor {
             // Apply rate limiting before sending
             rateLimiter.acquire();
 
-            sendEmail(job.getRecipient().getSanitizedEmail(), job.getSubject(), job.getContent());
+            sendEmail(job);
             emailSentSuccessfully = true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -79,18 +76,19 @@ public class NotificationJobProcessor {
         try {
             transactionTemplate.executeWithoutResult(status -> {
                 if (success) {
-                    updateAuditLogStatus(job, "SENT");
+                    updateAuditLogStatus(job, "SENT", null);
                     jobRepository.delete(job);
                 } else {
                     int nextRetryCount = job.getRetries() + 1;
+                    String errorMessage = finalError != null ? finalError.getMessage() : "Unknown error";
                     if (nextRetryCount >= maxRetryAttempts) {
                         log.error("Job ID: {} permanently failed after {} attempts: {}", 
-                                  job.getId(), maxRetryAttempts, finalError.getMessage());
-                        updateAuditLogStatus(job, "FAILED");
+                                  job.getId(), maxRetryAttempts, errorMessage);
+                        updateAuditLogStatus(job, "FAILED", errorMessage);
                         jobRepository.delete(job);
                     } else {
-                        boolean isRateLimited = finalError.getMessage() != null && 
-                                (finalError.getMessage().contains("421") || finalError.getMessage().toLowerCase().contains("rate limit"));
+                        boolean isRateLimited = errorMessage != null && 
+                                (errorMessage.contains("421") || errorMessage.toLowerCase().contains("rate limit"));
                         
                         // Calculate exponential backoff
                         long backoff = (long) (initialIntervalMs * Math.pow(retryMultiplier, job.getRetries()));
@@ -100,13 +98,14 @@ public class NotificationJobProcessor {
                         backoff = Math.min(backoff, maxIntervalMs);
 
                         log.warn("Job ID: {} failed attempt {}/{}. Scheduling retry in {}ms: {}", 
-                                 job.getId(), nextRetryCount, maxRetryAttempts, backoff, finalError.getMessage());
+                                 job.getId(), nextRetryCount, maxRetryAttempts, backoff, errorMessage);
 
                         // Reschedule job in DB by updating state
                         NotificationJob managedJob = jobRepository.findById(job.getId()).orElse(job);
                         managedJob.setRetries(nextRetryCount);
                         managedJob.setRetryAfter(Instant.now().plusMillis(backoff));
                         managedJob.setStatus("PENDING");
+                        managedJob.setProcessingStartedAt(null);
                         jobRepository.save(managedJob);
                     }
                 }
@@ -116,21 +115,23 @@ public class NotificationJobProcessor {
         }
     }
 
-    private void updateAuditLogStatus(NotificationJob job, String status) {
+    private void updateAuditLogStatus(NotificationJob job, String status, String errorDetails) {
         logRepository.findById(job.getId()).ifPresent(auditLog -> {
             auditLog.setStatus(status);
+            auditLog.setErrorDetails(errorDetails);
             auditLog.setProcessedAt(Instant.now());
             logRepository.save(auditLog);
         });
     }
 
-    private void sendEmail(String to, String subject, String content) {
+    private void sendEmail(NotificationJob job) {
+        var client = emailSenderProviderService.getSenderClient(job.getSender());
         SimpleMailMessage message = new SimpleMailMessage();
-        message.setTo(to);
-        message.setSubject(subject);
-        message.setText(content);
-        message.setFrom(fromAddress);
-        mailSender.send(message);
+        message.setTo(job.getRecipient().getSanitizedEmail());
+        message.setSubject(job.getSubject());
+        message.setText(job.getContent());
+        message.setFrom(client.fromAddress());
+        client.mailSender().send(message);
     }
 
     private static class RateLimiter {

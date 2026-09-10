@@ -1,0 +1,7 @@
+.git
+.gradle
+.idea
+.kamal
+.vscode
+build
+bin

@@ -14,4 +14,8 @@ public class RecipientSyncRequest {
     @NotBlank(message = "Email is required for synchronization")
     @Email(message = "Invalid email format")
     private String email;
+
+    private String name;
+
+    private String metadata;
 }

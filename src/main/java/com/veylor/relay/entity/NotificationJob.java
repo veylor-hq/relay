@@ -30,6 +30,10 @@ public class NotificationJob implements Persistable<UUID> {
     @JoinColumn(name = "recipient_id", nullable = false)
     private Recipient recipient;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sender_id")
+    private EmailSender sender;
+
     @Column(nullable = false)
     private String type;
 
@@ -56,6 +60,9 @@ public class NotificationJob implements Persistable<UUID> {
 
     @Column(name = "retry_after")
     private Instant retryAfter;
+
+    @Column(name = "processing_started_at")
+    private Instant processingStartedAt;
 
     @Transient
     @Builder.Default

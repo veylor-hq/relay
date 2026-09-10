@@ -22,6 +22,16 @@ public class Recipient {
     @Column(name = "sanitized_email", nullable = false, unique = true)
     private String sanitizedEmail;
 
+    @Column(name = "name")
+    private String name;
+
+    @Column(name = "metadata", columnDefinition = "TEXT")
+    private String metadata;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by_app_id")
+    private Application createdByApp;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();

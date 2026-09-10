@@ -10,7 +10,11 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-veylor_relay}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-veylor_relay}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -31,12 +35,13 @@ services:
       - MAIL_PORT=${MAIL_PORT:-1025}
       - MAIL_USERNAME=${MAIL_USERNAME:-}
       - MAIL_PASSWORD=${MAIL_PASSWORD:-}
-      - MAIL_FROM_ADDRESS=${MAIL_FROM_ADDRESS:-relay@veylor.com}
+      - MAIL_FROM_ADDRESS=${MAIL_FROM_ADDRESS:-contact@relay.dev}
       - MAIL_SMTP_AUTH=${MAIL_SMTP_AUTH:-false}
       - MAIL_SMTP_STARTTLS=${MAIL_SMTP_STARTTLS:-false}
       - SENTRY_DSN=${SENTRY_DSN:-}
       - OTEL_TRACES_EXPORTER=${OTEL_TRACES_EXPORTER:-none}
       - OTEL_METRICS_EXPORTER=${OTEL_METRICS_EXPORTER:-none}
+      - JAVA_TOOL_OPTIONS=${JAVA_TOOL_OPTIONS:--Xmx350m}
       - OTEL_LOGS_EXPORTER=${OTEL_LOGS_EXPORTER:-none}
     ports:
       # Exposed locally so internal gRPC/REST over Tailscale can reach it.
@@ -57,7 +62,7 @@ services:
     depends_on:
       - relay
 
-  # Optional Tailscale sidecar container. 
+  # Optional Tailscale sidecar container.
   # If you prefer running Tailscale inside Docker instead of on the host machine,
   # uncomment the following service and configure TS_AUTHKEY in your .env file.
   # tailscale:

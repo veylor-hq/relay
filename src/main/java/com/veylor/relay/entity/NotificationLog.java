@@ -29,6 +29,10 @@ public class NotificationLog {
     @JoinColumn(name = "recipient_id", nullable = false)
     private Recipient recipient;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sender_id")
+    private EmailSender sender;
+
     @Column(nullable = false)
     private String type;
 
@@ -45,6 +49,9 @@ public class NotificationLog {
     @Builder.Default
     private String status = "PENDING";
 
+    @Column(name = "error_details", columnDefinition = "TEXT")
+    private String errorDetails;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();
@@ -58,5 +65,4 @@ public class NotificationLog {
             createdAt = Instant.now();
         }
     }
-
 }

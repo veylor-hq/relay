@@ -8,9 +8,9 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RecipientSyncResponse {
+public class RecipientResolveResponse {
     private UUID recipientId;
-    private String sanitizedEmail;
+    private String email;
     private String name;
-    private String status;
+    private String metadata;
 }

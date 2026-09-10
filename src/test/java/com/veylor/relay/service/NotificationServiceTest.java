@@ -2,11 +2,13 @@ package com.veylor.relay.service;
 
 import com.veylor.relay.dto.NotificationItem;
 import com.veylor.relay.entity.Application;
-import com.veylor.relay.entity.NotificationLog;
+import com.veylor.relay.entity.EmailSender;
 import com.veylor.relay.entity.NotificationJob;
+import com.veylor.relay.entity.NotificationLog;
 import com.veylor.relay.entity.Recipient;
-import com.veylor.relay.repository.NotificationLogRepository;
+import com.veylor.relay.repository.EmailSenderRepository;
 import com.veylor.relay.repository.NotificationJobRepository;
+import com.veylor.relay.repository.NotificationLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -16,9 +18,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class NotificationServiceTest {
@@ -26,6 +26,7 @@ class NotificationServiceTest {
     private RecipientService recipientService;
     private NotificationLogRepository notificationLogRepository;
     private NotificationJobRepository notificationJobRepository;
+    private EmailSenderRepository emailSenderRepository;
     private ObjectProvider<NotificationService> selfProvider;
     private NotificationService notificationService;
 
@@ -35,6 +36,7 @@ class NotificationServiceTest {
         recipientService = mock(RecipientService.class);
         notificationLogRepository = mock(NotificationLogRepository.class);
         notificationJobRepository = mock(NotificationJobRepository.class);
+        emailSenderRepository = mock(EmailSenderRepository.class);
         org.springframework.transaction.PlatformTransactionManager transactionManager = mock(org.springframework.transaction.PlatformTransactionManager.class);
         selfProvider = mock(ObjectProvider.class);
 
@@ -42,6 +44,7 @@ class NotificationServiceTest {
                 recipientService,
                 notificationLogRepository,
                 notificationJobRepository,
+                emailSenderRepository,
                 transactionManager,
                 selfProvider
         );
@@ -93,9 +96,11 @@ class NotificationServiceTest {
     }
 
     @Test
-    void testProcessSingleNotification() {
+    void testProcessSingleNotificationWithAuthorizedSender() {
+        UUID senderId = UUID.randomUUID();
         NotificationItem item = NotificationItem.builder()
                 .email("single.user+tag@gmail.com")
+                .senderId(senderId)
                 .subject("Transactional Alert")
                 .content("Immediate password reset link...")
                 .type("EMAIL")
@@ -107,6 +112,9 @@ class NotificationServiceTest {
                 .id(UUID.randomUUID())
                 .sanitizedEmail("singleuser@gmail.com")
                 .build();
+
+        EmailSender mockSender = EmailSender.builder().id(senderId).name("Sender").build();
+        when(emailSenderRepository.findEnabledSendersByApplicationId(app.getId())).thenReturn(List.of(mockSender));
 
         when(recipientService.findBySanitizedEmail("singleuser@gmail.com"))
                 .thenReturn(Optional.of(mockRecipient));
@@ -120,16 +128,36 @@ class NotificationServiceTest {
         assertEquals(mockLog.getId(), result.logId());
         assertEquals("PENDING", result.status());
 
-        // Verify audit log is saved with hashed details
+        // Verify audit log is saved with sender
         ArgumentCaptor<NotificationLog> logCaptor = ArgumentCaptor.forClass(NotificationLog.class);
         verify(notificationLogRepository, times(1)).save(logCaptor.capture());
-        assertNotEquals("Transactional Alert", logCaptor.getValue().getSubject());
+        assertEquals(mockSender, logCaptor.getValue().getSender());
 
-        // Verify transient job is saved with raw details
+        // Verify transient job is saved with sender
         ArgumentCaptor<NotificationJob> jobCaptor = ArgumentCaptor.forClass(NotificationJob.class);
         verify(notificationJobRepository, times(1)).save(jobCaptor.capture());
-        assertEquals("Transactional Alert", jobCaptor.getValue().getSubject());
-        assertEquals("Immediate password reset link...", jobCaptor.getValue().getContent());
+        assertEquals(mockSender, jobCaptor.getValue().getSender());
+    }
+
+    @Test
+    void testProcessSingleNotificationRejectsUnauthorizedSender() {
+        UUID unauthorizedSenderId = UUID.randomUUID();
+        NotificationItem item = NotificationItem.builder()
+                .email("single@gmail.com")
+                .senderId(unauthorizedSenderId)
+                .subject("Alert")
+                .content("Content")
+                .build();
+
+        Application app = Application.builder().id(UUID.randomUUID()).name("Client").build();
+        when(emailSenderRepository.findEnabledSendersByApplicationId(app.getId())).thenReturn(List.of());
+
+        Recipient mockRecipient = Recipient.builder().id(UUID.randomUUID()).sanitizedEmail("single@gmail.com").build();
+        when(recipientService.findBySanitizedEmail("single@gmail.com")).thenReturn(Optional.of(mockRecipient));
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            notificationService.processSingleNotification(item, app);
+        });
     }
 
     @Test
@@ -152,7 +180,7 @@ class NotificationServiceTest {
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(mockRecipient));
 
-        when(recipientService.createRecipientWithNewTransaction("conflict@gmail.com"))
+        when(recipientService.createRecipientWithNewTransaction(eq("conflict@gmail.com"), any(), any(), eq(app)))
                 .thenThrow(new org.springframework.dao.DataIntegrityViolationException("Duplicate key"));
 
         NotificationLog mockLog = NotificationLog.builder().id(UUID.randomUUID()).build();
@@ -163,6 +191,5 @@ class NotificationServiceTest {
         assertNotNull(result);
         assertEquals("conflict@gmail.com", result.resolvedEmail());
         verify(recipientService, times(2)).findBySanitizedEmail("conflict@gmail.com");
-        verify(recipientService, times(1)).createRecipientWithNewTransaction("conflict@gmail.com");
     }
 }

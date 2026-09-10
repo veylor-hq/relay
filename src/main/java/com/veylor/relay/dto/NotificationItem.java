@@ -4,6 +4,7 @@ import com.veylor.relay.validation.ExactlyOneRecipientIdentifier;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.*;
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -16,7 +17,9 @@ public class NotificationItem {
     @Email(message = "Invalid email format")
     private String email;
 
-    private java.util.UUID recipientId;
+    private UUID recipientId;
+
+    private UUID senderId;
 
     @NotBlank(message = "Subject is required")
     private String subject;
@@ -25,8 +28,10 @@ public class NotificationItem {
     private String content;
 
     @NotBlank(message = "Type is required")
-    private String type;
+    @Builder.Default
+    private String type = "EMAIL";
 
     @NotBlank(message = "Level is required")
-    private String level;
+    @Builder.Default
+    private String level = "INFO";
 }

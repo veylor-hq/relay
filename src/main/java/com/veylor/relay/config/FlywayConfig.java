@@ -26,11 +26,13 @@ public class FlywayConfig {
         if (!flywayEnabled) {
             return;
         }
-        Flyway.configure()
+        Flyway flyway = Flyway.configure()
                 .dataSource(dataSource)
                 .locations("classpath:db/migration")
                 .baselineOnMigrate(baselineOnMigrate)
-                .load()
-                .migrate();
+                .load();
+
+        flyway.repair();
+        flyway.migrate();
     }
 }
