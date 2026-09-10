@@ -1,0 +1,146 @@
+name: Build & Deploy Veylor Relay
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Notify Task Processed
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: |
+          ./scripts/notify_telegram.sh processing "Veylor Relay" "Build & deployment process initiated on GitHub Actions."
+
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.KAMAL_REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase Repository Name
+        id: string
+        run: |
+          echo "repo_name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.string.outputs.repo_name }}/veylor-relay:latest
+            ghcr.io/${{ steps.string.outputs.repo_name }}/veylor-relay:${{ github.sha }}
+            ghcr.io/${{ steps.string.outputs.repo_name }}:latest
+            ghcr.io/${{ steps.string.outputs.repo_name }}:${{ github.sha }}
+          labels: |
+            service=veylor-relay
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Notify Queued for Deploy
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: |
+          ./scripts/notify_telegram.sh queued "Veylor Relay" "Docker image built & pushed to GHCR. Queued for Kamal deploy."
+
+      - name: Install Ruby & Kamal
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install Kamal
+        run: gem install kamal -v 2.4.0
+
+      - name: Install Infisical CLI
+        run: |
+          curl -1sLf 'https://artifacts-cli.infisical.com/setup.deb.sh' | sudo -E bash
+          sudo apt-get install -y infisical
+
+      - name: Deploy Veylor Relay via Kamal
+        env:
+          INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
+          INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          SSH_PRIVATE_KEY: ${{ secrets.KAMAL_SSH_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+          SERVICE_NAME: "Veylor Relay"
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/kamal_ci_key
+          chmod 600 ~/.ssh/id_rsa ~/.ssh/kamal_ci_key
+
+          cat << 'EOF' > ~/.ssh/config
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+          EOF
+          chmod 600 ~/.ssh/config
+
+          # Authenticate Infisical & Export secrets directly for Relay
+          mkdir -p .kamal
+          export INFISICAL_TOKEN=$(infisical login --method=universal-auth \
+            --client-id="$INFISICAL_CLIENT_ID" \
+            --client-secret="$INFISICAL_CLIENT_SECRET" \
+            --domain="https://eu.infisical.com" \
+            --silent --plain)
+
+          infisical export --domain="https://eu.infisical.com" \
+            --token="$INFISICAL_TOKEN" \
+            --projectId="8516d19f-ffb4-4ef6-a207-eadf505fb2e5" \
+            --env="prod" \
+            --path="/relay" \
+            --format="dotenv" > .kamal/secrets
+
+          # Relay binds directly to host port (proxy: false), stop old container first
+          kamal app stop || true
+
+          # Deploy via Kamal using pre-built GHCR image
+          kamal deploy -c config/deploy.yml --version ${{ github.sha }} --skip-push
+
+      - name: Notify Success
+        if: success()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: |
+          ./scripts/notify_telegram.sh success "Veylor Relay" "Deployment complete! Internal Relay service live & updated."
+
+      - name: Notify Failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: |
+          ./scripts/notify_telegram.sh failure "Veylor Relay" "Build or deployment failed on GitHub Actions."
