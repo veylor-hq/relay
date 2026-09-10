@@ -1,0 +1,78 @@
+<%
+  secrets_file = File.exist?(".kamal/secrets") ? File.read(".kamal/secrets") : ""
+  get_secret = ->(key) {
+    v = ENV[key] || (secrets_file[/^#{key}=(.*)/, 1] if secrets_file)
+    (v && !v.strip.empty?) ? v.strip : nil
+  }
+  server_ip = get_secret.call("TARGET_SERVER_IP")
+  bind_ip   = get_secret.call("RELAY_BIND_IP") || "127.0.0.1"
+  port      = get_secret.call("RELAY_PORT") || "8085"
+%>
+# config/deploy.yml
+service: veylor-relay
+image: veylor-hq/relay/veylor-relay
+
+servers:
+  web:
+    hosts:
+      - <%= server_ip %>
+    # Internal-only service: disable public kamal-proxy
+    proxy: false
+    options:
+      network-alias: veylor-relay
+      # Bind exclusively to the Tailscale interface and localhost so it is NEVER exposed to the public internet
+      publish:
+        - "<%= bind_ip %>:<%= port %>:8080"
+        <% if bind_ip != "127.0.0.1" %>
+        - "127.0.0.1:<%= port %>:8080"
+        <% end %>
+
+registry:
+  server: ghcr.io
+  username: denver-code
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+ssh:
+  user: kamal
+
+builder:
+  context: .
+  arch: amd64
+
+accessories:
+  postgres:
+    image: postgres:16-alpine
+    host: <%= server_ip %>
+    port: "127.0.0.1:54321:5432"
+    directories:
+      - /var/lib/velo/relay_postgres:/var/lib/postgresql/data
+    env:
+      clear:
+        POSTGRES_DB: veylor_relay
+        POSTGRES_USER: postgres
+      secret:
+        - POSTGRES_PASSWORD
+
+env:
+  clear:
+    TZ: Europe/London
+    JAVA_TOOL_OPTIONS: "-Xmx350m"
+    DB_URL: jdbc:postgresql://veylor-relay-postgres:5432/veylor_relay
+    DB_USER: postgres
+    SPRING_FLYWAY_ENABLED: true
+    SPRING_FLYWAY_BASELINE_ON_MIGRATE: true
+    SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    OTEL_TRACES_EXPORTER: none
+    OTEL_METRICS_EXPORTER: none
+    OTEL_LOGS_EXPORTER: none
+    MAIL_FROM_ADDRESS: relay@veylor.com
+  secret:
+    - DB_PASSWORD
+    - ADMIN_SECRET_TOKEN
+    - MAIL_HOST
+    - MAIL_PORT
+    - MAIL_USERNAME
+    - MAIL_PASSWORD
+    - MAIL_SMTP_AUTH
+    - MAIL_SMTP_STARTTLS
