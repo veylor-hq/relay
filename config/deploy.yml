@@ -2,7 +2,7 @@
   secrets_file = File.exist?(".kamal/secrets") ? File.read(".kamal/secrets") : ""
   get_secret = ->(key) {
     v = ENV[key] || (secrets_file[/^#{key}=(.*)/, 1] if secrets_file)
-    (v && !v.strip.empty?) ? v.strip : nil
+    (v && !v.strip.empty?) ? v.strip.gsub(/\A['"]|['"]\z/, '') : nil
   }
   server_ip = get_secret.call("TARGET_SERVER_IP")
   bind_ip   = get_secret.call("RELAY_BIND_IP") || "127.0.0.1"
