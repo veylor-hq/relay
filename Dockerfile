@@ -12,6 +12,8 @@ RUN chmod +x ./gradlew && ./gradlew bootJar --no-daemon -x test
 # Stage 2: Runtime image using JRE 26
 FROM eclipse-temurin:26-jre-alpine
 
+RUN apk add --no-cache tzdata
+
 WORKDIR /app
 
 COPY --from=builder /app/build/libs/*.jar app.jar

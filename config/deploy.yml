@@ -40,6 +40,10 @@ builder:
   context: .
   arch: amd64
 
+volumes:
+  - "/etc/localtime:/etc/localtime:ro"
+  - "/etc/timezone:/etc/timezone:ro"
+
 accessories:
   postgres:
     image: postgres:16-alpine
