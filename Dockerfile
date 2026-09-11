@@ -27,5 +27,5 @@ EXPOSE 8080
 # Restrict JVM RAM consumption to max 350 MB
 ENV JAVA_TOOL_OPTIONS="-Xmx350m"
 
-# Run with Sentry OpenTelemetry agent and explicit 350MB heap limit
-ENTRYPOINT ["java", "-Xmx350m", "-javaagent:sentry-agent.jar", "-Dspring.profiles.active=prod", "-jar", "app.jar"]
+# Run with Sentry OpenTelemetry agent, explicit 350MB heap limit and Europe/London timezone
+ENTRYPOINT ["java", "-Xmx350m", "-Duser.timezone=Europe/London", "-javaagent:sentry-agent.jar", "-Dspring.profiles.active=prod", "-jar", "app.jar"]
